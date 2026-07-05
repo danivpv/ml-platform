@@ -1,0 +1,32 @@
+[project]
+name = "ml-platform"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [{ name = "danivpv", email = "danivpv@gmail.com" }]
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+infra = ["aws-cdk-lib>=2.260.0,<3.0.0", "constructs>=10.5.0,<11.0.0"]
+inference-training = [
+    "boto3>=1.38.27",
+    "feast[aws]>=0.40.0",
+    "pandas>=2.3.3",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.14.2",
+    "scikit-learn>=1.9.0",
+]
+mlflow = ["boto3>=1.38.27", "mlflow[extras]>=3.14.0", "psycopg2-binary>=2.9.12"]
+dev = ["pytest>=9.1.1", "ruff>=0.15.20", "ty>=0.0.56"]
+
+[tool.uv]
+default-groups = ["dev", "infra"]
+conflicts = [[{ group = "infra" }, { group = "inference-training" }]]
+
+[project.scripts]
+ml-platform = "ml_platform:main"
+
+[build-system]
+requires = ["uv_build>=0.11.25,<0.12.0"]
+build-backend = "uv_build"
