@@ -1,0 +1,27 @@
+# Git
+.git
+.gitignore
+
+# Virtual environments & dependencies
+.venv
+venv
+env
+*.egg-info
+
+# CDK & build outputs
+cdk.out
+dist
+build
+*.pyc
+__pycache__
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# Local IDE & agent artifacts
+.gemini
+.vscode
+*.log
+TEST_REPORT.md
+scratch/
+predictions.jsonl
