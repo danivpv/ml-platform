@@ -8,7 +8,7 @@ ENV UV_COMPILE_BYTECODE=1
 ENV UV_NO_PROGRESS=1
 ENV UV_LINK_MODE=copy
 
-WORKDIR /build
+WORKDIR /app
 
 # Cache Layer 1: Third-Party Dependencies Only
 # Uses mount caches and binds for fast, reproducible lockfile installations.
@@ -32,9 +32,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Copy the virtual environment and project files intact from the builder
-COPY --from=builder /build/.venv /app/.venv
-COPY --from=builder /build /app
+# Copy the virtual environment intact from the builder (no source files copied to runtime stage!)
+COPY --from=builder /app/.venv /app/.venv
 
 # Activate virtual environment by default
 ENV PATH="/app/.venv/bin:$PATH"
@@ -44,4 +43,4 @@ ENV PATH="/app/.venv/bin:$PATH"
 #   ONLINE_TABLE         — DynamoDB table for Feast online store
 #   ARTIFACTS_BUCKET     — S3 bucket for MLflow artifacts
 #   MLFLOW_TRACKING_URI  — injected from SSM Parameter Store at task start
-CMD ["python", "src/ml_platform/training/runtime/train.py"]
+CMD ["ml-platform-train"]

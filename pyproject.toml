@@ -12,21 +12,37 @@ infra = ["aws-cdk-lib>=2.260.0,<3.0.0", "constructs>=10.5.0,<11.0.0"]
 inference-training = [
     "boto3>=1.38.27",
     "feast[aws]>=0.40.0",
+    "mlflow-skinny>=3.14.0",
     "pandas>=2.3.3",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
+    "s3fs>=2026.6.0",
     "scikit-learn>=1.9.0",
+    "setuptools>=75.0.0",
+    "skops>=0.10.0",
 ]
-mlflow = ["boto3>=1.38.27", "mlflow[extras]>=3.14.0", "psycopg2-binary>=2.9.12"]
+mlflow = [
+    "boto3>=1.38.27",
+    "mlflow[extras]>=3.14.0",
+    "psycopg2-binary>=2.9.12",
+    "setuptools>=75.0.0",
+    "skops>=0.10.0",
+]
 dev = ["pytest>=9.1.1", "ruff>=0.15.20", "ty>=0.0.56"]
 
 [tool.uv]
-default-groups = ["dev", "infra"]
+default-groups = ["dev"]
 conflicts = [[{ group = "infra" }, { group = "inference-training" }]]
 
 [project.scripts]
 ml-platform = "ml_platform:main"
+ml-platform-train = "ml_platform.training.runtime.train:main"
+ml-platform-predict = "ml_platform.inference.runtime.predict:main"
 
 [build-system]
 requires = ["uv_build>=0.11.25,<0.12.0"]
 build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+norecursedirs = ["cdk.out", ".venv", "dist", "build", "node_modules"]
+testpaths = ["tests"]

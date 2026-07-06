@@ -86,7 +86,7 @@ class TrainingConstruct(Construct):
             self,
             "TrainingSg",
             vpc=vpc,
-            description="Training Fargate task — outbound only, no inbound rules",
+            description="Training Fargate task - outbound only, no inbound rules",
             allow_all_outbound=True,
         )
 

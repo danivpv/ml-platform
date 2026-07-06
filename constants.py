@@ -14,8 +14,8 @@ STAGE = os.environ.get("STAGE", "sandbox")
 
 # CDK_DEFAULT_ACCOUNT / CDK_DEFAULT_REGION are injected by the CDK CLI when
 # the app is synthesised with `--profile` or the AWS_PROFILE env var is set.
-ACCOUNT = os.environ.get("CDK_DEFAULT_ACCOUNT", "")
-REGION = os.environ.get("CDK_DEFAULT_REGION", "us-east-1")
+ACCOUNT = os.environ.get("CDK_DEFAULT_ACCOUNT") or os.environ.get("AWS_ACCOUNT_ID") or "975050146846"
+REGION = os.environ.get("CDK_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "us-east-1"
 
 # ── Networking ─────────────────────────────────────────────────────────────
 # ⚠  SECURITY: Replace with your actual IP before `cdk deploy`.
@@ -26,8 +26,8 @@ DEVELOPER_CIDR = "187.156.66.153/32"
 
 # ── MLflow Fargate service ─────────────────────────────────────────────────
 MLFLOW_IMAGE_PORT = 5000
-MLFLOW_FARGATE_CPU = 256  # 0.25 vCPU
-MLFLOW_FARGATE_MEMORY_MB = 512
+MLFLOW_FARGATE_CPU = 512  # 0.5 vCPU
+MLFLOW_FARGATE_MEMORY_MB = 2048
 
 # ── Training / Inference Fargate tasks ────────────────────────────────────
 TASK_CPU = 512  # 0.5 vCPU

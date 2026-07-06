@@ -190,6 +190,7 @@ class MLPlatformStatelessStack(Stack):
         cluster = stateful.experiment_tracking.cluster
         mlflow_uri_param = stateful.experiment_tracking.mlflow_uri_param
         rds_sg = stateful.experiment_tracking.rds_sg
+        mlflow_sg = stateful.experiment_tracking.mlflow_sg
 
         # ── Training ──────────────────────────────────────────────────────
         self.training = TrainingConstruct(
@@ -241,6 +242,30 @@ class MLPlatformStatelessStack(Stack):
                     feature_bucket.arn_for_objects("predictions/*"),
                 ],
             )
+        )
+
+        # MLflow SG: allow 5000 from training and inference task SGs.
+        # Required so containers running inside the VPC can log runs, metrics,
+        # artifacts, and load models over HTTP.
+        ec2.CfnSecurityGroupIngress(
+            self,
+            "MlflowIngressFromTraining",
+            group_id=mlflow_sg.security_group_id,
+            source_security_group_id=self.training.task_sg.security_group_id,
+            ip_protocol="tcp",
+            from_port=constants.MLFLOW_IMAGE_PORT,
+            to_port=constants.MLFLOW_IMAGE_PORT,
+            description="MLflow API from training task",
+        )
+        ec2.CfnSecurityGroupIngress(
+            self,
+            "MlflowIngressFromInference",
+            group_id=mlflow_sg.security_group_id,
+            source_security_group_id=self.inference.task_sg.security_group_id,
+            ip_protocol="tcp",
+            from_port=constants.MLFLOW_IMAGE_PORT,
+            to_port=constants.MLFLOW_IMAGE_PORT,
+            description="MLflow API from inference task",
         )
 
         # RDS SG: allow 5432 from training and inference task SGs.

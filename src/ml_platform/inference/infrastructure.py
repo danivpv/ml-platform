@@ -96,7 +96,7 @@ class InferenceConstruct(Construct):
             self,
             "InferenceSg",
             vpc=vpc,
-            description="Inference Fargate task — outbound only, no inbound rules",
+            description="Inference Fargate task - outbound only, no inbound rules",
             allow_all_outbound=True,
         )
 

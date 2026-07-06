@@ -1,27 +1,58 @@
-# Git
+# -----------------------------------------------------------------------------
+# .dockerignore — Hardened Docker Build Context Exclusions
+# -----------------------------------------------------------------------------
+
+# 1. Private & Sensitive User / Career Documents (Security Ground Truth)
+.private
+.private/
+applications
+applications/
+.env*
+*.pem
+*.key
+credentials.json
+
+# 2. Version Control & IDE / AI Agent Artifacts
 .git
 .gitignore
+.github
+.gemini
+.vscode
+.cursor
+.agents
+*.log
 
-# Virtual environments & dependencies
+# 3. Python Virtual Environments & Build Caches
 .venv
 venv
 env
 *.egg-info
-
-# CDK & build outputs
-cdk.out
-dist
-build
-*.pyc
 __pycache__
+*.py[codz]
+*$py.class
+*.so
 .pytest_cache
 .ruff_cache
 .mypy_cache
+.coverage*
+htmlcov/
+dist/
+build/
 
-# Local IDE & agent artifacts
-.gemini
-.vscode
-*.log
+# 4. AWS CDK Infrastructure, Assets & Local State
+cdk.out
+cdk.context.json
+cdk.json
+app.py
+asset.*
+manifest.json
+tree.json
+Makefile
+
+# 5. Non-Runtime Directories & Docs (Reduce Build Context & Attack Surface)
+docs/
+tests/
+scripts/
+*.md
 TEST_REPORT.md
-scratch/
-predictions.jsonl
+predictions*.jsonl

@@ -24,7 +24,7 @@ Security concerns (PRD §6):
     only enforcement layer (v2: private subnet + NAT/VPC endpoints).
 """
 
-import os
+from pathlib import Path
 from typing import Any
 
 from aws_cdk import (
@@ -40,6 +40,8 @@ from aws_cdk.aws_ecr_assets import DockerImageAsset
 from constructs import Construct
 
 import constants
+
+_ROOT_DIR = str(Path(__file__).resolve().parents[3])
 
 
 class ExperimentTrackingConstruct(Construct):
@@ -136,7 +138,7 @@ class ExperimentTrackingConstruct(Construct):
             self,
             "MlflowDb",
             engine=rds.DatabaseInstanceEngine.postgres(
-                version=rds.PostgresEngineVersion.VER_16_6
+                version=rds.PostgresEngineVersion.VER_16_13
             ),
             instance_type=ec2.InstanceType.of(
                 ec2.InstanceClass.T4G, ec2.InstanceSize.MICRO
@@ -198,7 +200,8 @@ class ExperimentTrackingConstruct(Construct):
         mlflow_image = DockerImageAsset(
             self,
             "MlflowImage",
-            directory=os.path.join(os.path.dirname(__file__), "runtime"),
+            directory=_ROOT_DIR,
+            file="src/ml_platform/experiment_tracking/runtime/Dockerfile",
         )
 
         task_def = ecs.FargateTaskDefinition(

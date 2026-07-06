@@ -8,7 +8,7 @@ ENV UV_COMPILE_BYTECODE=1
 ENV UV_NO_PROGRESS=1
 ENV UV_LINK_MODE=copy
 
-WORKDIR /build
+WORKDIR /app
 
 # Cache Layer 1: Third-Party Dependencies Only
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -28,9 +28,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Copy the virtual environment and project files intact from the builder
-COPY --from=builder /build/.venv /app/.venv
-COPY --from=builder /build /app
+# Copy the virtual environment intact from the builder (no source files copied to runtime stage!)
+COPY --from=builder /app/.venv /app/.venv
 
 # Activate virtual environment by default
 ENV PATH="/app/.venv/bin:$PATH"
@@ -41,4 +40,4 @@ ENV PATH="/app/.venv/bin:$PATH"
 #   ARTIFACTS_BUCKET     — S3 bucket for MLflow artifacts / model registry
 #   MLFLOW_TRACKING_URI  — injected from SSM Parameter Store at task start
 #   PREDICTIONS_PREFIX   — S3 URI prefix for batch prediction output
-CMD ["python", "src/ml_platform/inference/runtime/predict.py"]
+CMD ["ml-platform-predict"]

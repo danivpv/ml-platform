@@ -63,7 +63,7 @@ LABEL_COLUMN = "churned"
 
 # S3 key paths within FEATURE_BUCKET (relative to the bucket root).
 ENTITIES_S3_KEY = "offline/entities/train_entities.parquet"
-LABELS_S3_KEY = "offline/labels/train_labels.parquet"
+LABELS_S3_KEY = "offline/labels/labels_synthetic.parquet"
 
 FEATURE_REFS = [
     "customer_features:age",

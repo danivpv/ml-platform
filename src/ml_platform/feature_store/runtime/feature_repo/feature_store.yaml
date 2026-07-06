@@ -4,13 +4,13 @@
 # at container runtime from CDK-generated resource names (see component.py).
 # Feast resolves ${VAR} references natively using the process environment.
 #
-# offline_store.type = "file": Feast's file provider reads Parquet directly
+# offline_store.type = "file": The Feast file provider reads Parquet directly
 # from s3:// paths using S3FileSource. This is NOT local filesystem storage
 # despite the "file" label (PRD §2.4 + infrastructure context note).
 #
 # entity_key_serialization_version = 3: required for DynamoDB online store
 # compatibility with Feast >= 0.40 (version 3 uses a compact binary format).
-project: ml-platform
+project: ml_platform
 provider: aws
 registry:
   path: s3://${FEATURE_BUCKET}/registry/registry.db
@@ -18,7 +18,7 @@ registry:
 online_store:
   type: dynamodb
   region: us-east-1
-  table_name: ${ONLINE_TABLE}
+  table_name_template: ${ONLINE_TABLE}
 offline_store:
   type: file
 entity_key_serialization_version: 3

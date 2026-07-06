@@ -1,11 +1,11 @@
 # ── Profile ───────────────────────────────────────────────────────────────────
 # Override on the CLI: make deploy AWS_PROFILE=production
-AWS_PROFILE ?= default#oversight-test
+AWS_PROFILE ?= default
 
 # Export so all child processes (cdk, aws cli) inherit the profile
 export AWS_PROFILE
 
-.PHONY: lint type-check test deploy deploy-stateful deploy-stateless clean
+.PHONY: lint type-check test docker-build deploy deploy-stateful deploy-stateless clean
 
 # ── Quality ───────────────────────────────────────────────────────────────────
 
@@ -14,29 +14,37 @@ lint:
 	uv run ruff format
 
 type-check:
-# uv run --only-group inference-training ty check src/ml_platform/{inference,training}/runtime --verbose
-# uv run --only-group mlflow ty check src/ml_platform/experiment_tracking/runtime
-	uv run --only-group infra ty check src/ml_platform/*/infrastructure.py --verbose
+	uv run --group infra ty check src/ml_platform/*/infrastructure.py src/ml_platform/component.py app.py constants.py --verbose
+	uv run --group inference-training ty check src/ml_platform/{inference,training,feature_store}/runtime src/ml_platform/common --verbose
+	uv run --group mlflow ty check src/ml_platform/experiment_tracking/runtime --verbose
 
 test:
-	uv run pytest
+	uv run --group infra pytest --ignore=cdk.out tests/unit/{test_experiment_tracking,test_feature_store,test_inference,test_monitoring,test_training}.py
+	uv run --group inference-training pytest --ignore=cdk.out tests/unit/test_schemas.py
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+
+docker-build:
+	docker build -f src/ml_platform/experiment_tracking/runtime/Dockerfile -t ml-platform/mlflow:latest .
+	docker build -f src/ml_platform/training/runtime/Dockerfile -t ml-platform/training:latest .
+	docker build -f src/ml_platform/inference/runtime/Dockerfile -t ml-platform/inference:latest .
 
 # ── CDK ───────────────────────────────────────────────────────────────────────
 
 synth:
-	uv run cdk synth
+	uv run --group infra cdk synth --profile $(AWS_PROFILE)
 
 deploy-stateful:
-	uv run cdk deploy MLPlatformStatefulStack --profile $(AWS_PROFILE)
+	uv run --group infra cdk deploy MLPlatformStateful --require-approval never --profile $(AWS_PROFILE)
 
 deploy-stateless:
-	uv run cdk deploy MLPlatformStatelessStack --profile $(AWS_PROFILE)
+	uv run --group infra cdk deploy MLPlatformStateless --require-approval never --profile $(AWS_PROFILE)
 
 deploy:
-	uv run cdk deploy --all --profile $(AWS_PROFILE)
+	uv run --group infra cdk deploy --all --require-approval never --profile $(AWS_PROFILE)
 
 teardown:
-	uv run cdk destroy --all --profile $(AWS_PROFILE)
+	uv run --group infra cdk destroy --all --profile $(AWS_PROFILE)
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
 clean:

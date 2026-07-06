@@ -12,12 +12,13 @@ Extension path (road-to-prod §1):
   gets its own join key column in the entity DataFrame.
 """
 
-from feast import Entity
+from feast import Entity, ValueType
 
 # ── Customer entity ────────────────────────────────────────────────────────
 
 customer = Entity(
     name="customer",
+    value_type=ValueType.STRING,
     join_keys=["entity_id"],
     description=(
         "A customer identified by entity_id. "
