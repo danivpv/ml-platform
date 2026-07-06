@@ -8,7 +8,7 @@
 
 ## 1. Scope boundaries
 
-**In scope (v1/v2, 16h):**
+**v1 — single-model pipeline:**
 - CDK app with feature store, experiment tracking, training, and batch inference constructs
 - Feast: offline store (S3) + online store (DynamoDB) + registry, `feast materialize` wired even though batch inference doesn't strictly need it yet
 - MLflow: tracking server (Fargate), Postgres backend store, S3 artifacts, model registry
@@ -16,7 +16,14 @@
 - Minimal CloudWatch monitoring for infra health
 - Manual `cdk deploy` via CLI/SSO profile throughout the build
 
-**Explicitly out of scope for v1/v2 (see §6 for extension path):**
+**v2 — multi-model architecture (current active scope):**
+- Model catalog (`catalog` schema in existing RDS Postgres) + FastAPI CRUD service for model registration and schedule management (§2.23–§2.24)
+- `BaseMLModel` / `Trainer` factory replacing hardcoded single-model constants (§2.25)
+- DDD `PlatformContext` dependency injection to decouple all bounded contexts (§2.26)
+- Dynamic EventBridge scheduling via API — onboard new models without redeploying CDK (§2.27)
+- Two end-to-end use cases demonstrating multi-model dispatch (churn + one additional domain)
+
+**Explicitly out of scope for v1/v2:**
 - CI/CD pipeline execution (GitHub Actions + CDK Pipelines scaffolded, wired last or in a later session)
 - Custom VPC / private subnets / NAT / ALB
 - Real-time inference endpoint
@@ -24,7 +31,7 @@
 - Polars dataframe backend
 - PyTorch trainer implementation (interface only)
 
-*See §8 for the explicit v1–v4 versioning roadmap, which supersedes the simplified "v1/v2 vs v2+" split above now that scope has grown.*
+*See §8 for the authoritative v1–v4 versioning table. That table is the canonical "is X in scope" reference.*
 
 ---
 
@@ -68,7 +75,7 @@ Each entry: the user story it satisfies, alternatives considered, and what we're
 |---|---|
 | Alternatives considered | Redshift, Athena + Glue Catalog, S3 File source |
 | Decision | **S3 File source** (parquet), point-in-time joins computed locally by Feast |
-| Rationale | Data volume is small for an MVP; Redshift/Athena add cluster/crawler cost and complexity with no benefit yet. Revisit if data outgrows local join performance. |
+| Rationale | Data volume is small for an MVP; Redshift/Athena add cluster/crawler cost and complexity with no benefit yet. Revisit if data outgrows local join performance. **Crucially, Feast acts as a data access and retrieval layer, not a transformation compute engine.** Domain feature engineering (ETL jobs using Spark, Pandas, or SQL) executes *before* Feast, writing clean, pre-engineered Parquet files to S3 (e.g., `s3://bucket/offline/features/customer_stats.parquet`). Feast simply registers these schemas and performs time-travel joins across datasets without re-executing transformations. |
 
 ### 2.5 Feature store — online store
 
@@ -78,7 +85,7 @@ Each entry: the user story it satisfies, alternatives considered, and what we're
 |---|---|
 | Alternatives considered | Skip online store entirely (batch-only), ElastiCache Redis, DynamoDB |
 | Decision | **DynamoDB, on-demand billing — provisioned now, `feast materialize-incremental` wired on a schedule** |
-| Rationale | On-demand DynamoDB is near-zero cost at idle (pay per request), unlike Redis which bills a node 24/7 regardless of traffic. Provisioning it now costs little and means the real-time extension later is additive, not a redesign. Batch inference still reads from the offline store (the correct pattern for batch); the online store is exercised via materialize now so the muscle memory and infra exist ahead of need. |
+| Rationale | On-demand DynamoDB is near-zero cost at idle (pay per request), unlike Redis which bills a node 24/7 regardless of traffic. Provisioning it now costs little and means the real-time extension later is additive, not a redesign. Batch inference still reads from the offline store (the correct pattern for batch); the online store is exercised via materialize now so the muscle memory and infra exist ahead of need. **Furthermore, DynamoDB's schemaless key-value structure generalizes seamlessly to multi-model architectures (N models).** Because Feast serializes composite entity keys into a single string partition key formatted as `<entity_name>#<entity_id>` (e.g., `customer#1004` vs `merchant#552`, see §2.20), multiple distinct datasets and feature views coexist in the exact same DynamoDB table without primary key collisions or database migrations. |
 
 ### 2.6 Feature registry
 
@@ -121,8 +128,8 @@ Each entry: the user story it satisfies, alternatives considered, and what we're
 | | |
 |---|---|
 | Alternatives considered | Custom VPC with private subnets + NAT Gateway, default VPC + public subnet + locked-down SG |
-| Decision | **Default VPC, public subnet, security group restricted to developer IP** — no custom `networking` construct in v1 |
-| Rationale | Feast's S3/DynamoDB calls don't require a VPC at all. Fargate does require *a* subnet, but not a custom one — the account's default VPC suffices. A NAT Gateway (~$32/month) to support private subnets isn't justified yet. Flagged as a clear v2 hardening item. |
+| Decision | **Default VPC, public subnet, security group restricted to developer IP** — no custom `networking` construct in v1/v2 |
+| Rationale | Feast's S3/DynamoDB calls don't require a VPC at all. Fargate does require *a* subnet, but not a custom one — the account's default VPC suffices. A NAT Gateway (~$32/month) to support private subnets isn't justified yet. Flagged as a v4 hardening item — see §8. |
 
 ### 2.11 Monitoring
 
@@ -246,7 +253,7 @@ Not an architecture component — it's the agentic IDE used to build the above. 
 |---|---|
 | Alternatives considered | Direct DB access only (defer any API), FastAPI + SQLModel CRUD service now |
 | Decision | **FastAPI + SQLModel CRUD service, deployed now**, on the existing no-ALB / IP-locked-SG / public-subnet Fargate pattern already accepted for MLflow (PRD §2.9) — no VPC/NAT/ALB hardening added in this phase. Routes versioned from the start (`/v1/models/...`) so the eventual Streamlit consumer isn't broken by a later breaking change. |
-| Rationale | Confirmed need to prep for future UI/multi-user access, but the actual multi-user/public-exposure trigger (§8, v3) hasn't happened yet — reusing the already-accepted low-cost pattern avoids paying for the ~$50/month VPC+NAT+ALB bundle before it's needed. Incremental cost: one more small Fargate task (~$0/month stopped between sessions, ~$9/month if left running) — not a new cost category, just one more instance of a pattern already in the stack. The Step Functions orchestrator (PRD §2.20) now queries this API (or the DB directly from a Lambda step) for the list of `active` models instead of reading a static config file — closing the loop between "a set of models" and "a set of crons." |
+| Rationale | Confirmed need to prep for future UI/multi-user access, but the actual multi-user/public-exposure trigger (§8, v3) hasn't happened yet — reusing the already-accepted low-cost pattern avoids paying for the ~$50/month VPC+NAT+ALB bundle before it's needed. Incremental cost: one more small Fargate task (~$0/month stopped between sessions, ~$9/month if left running) — not a new cost category, just one more instance of a pattern already in the stack. The catalog API (§2.23) becomes the source of truth for which models are `active` — when EventBridge Scheduler triggers a training or inference run, the launched container reads `MODEL_NAME` from its environment override and resolves its full configuration (feature refs, `Trainer` class, label column) by calling this API or querying the catalog DB directly. |
 
 ### 2.25 Training dispatch pattern (multi-model)
 
@@ -256,7 +263,48 @@ Not an architecture component — it's the agentic IDE used to build the above. 
 |---|---|
 | Alternatives considered | Manual conditional dispatch inside `train.py`; a parallel abstract-class hierarchy across training, inference, *and* monitoring; a `Trainer` factory/registry scoped to training only |
 | Decision | **A `Trainer` registry/factory** (`model_type: str → Trainer subclass`), scoped to **training only**. Inference continues to use `mlflow.pyfunc.load_model` (already framework-agnostic, PRD §2.14). Monitoring remains framework-agnostic — it operates on feature distributions and predictions/labels, not model internals. |
-| Rationale | `fit()` genuinely differs across sklearn/PyTorch, so the training-side seam is real, worthwhile work — and now has a concrete driver (the catalog's `model_type` column) rather than being speculative. Building the same abstraction into inference would re-solve what pyfunc already gives for free; building it into monitoring adds a distinction (per-model-type drift logic) that isn't currently needed, since drift detection doesn't depend on which framework produced the model. |
+| Rationale | `fit()` genuinely differs across sklearn/PyTorch, so the training-side seam is real, worthwhile work — and now has a concrete driver (the catalog's `model_type` column) rather than being speculative. **Crucially, this is 100% compatible with the `pyfunc` abstraction (§2.14):** inside each `Trainer` subclass (or `BaseMLModel`), the `save()` method wraps the underlying framework model in a standard MLflow `pyfunc` flavor. When batch inference executes (`predict.py`), it never needs to know if the champion model was trained with Scikit-Learn, XGBoost, or PyTorch — it simply calls `mlflow.pyfunc.load_model("models:/<model_name>@champion")` and executes `.predict(df)`. |
+
+### 2.26 Infrastructure Composition & Domain-Driven Design (DDD Bounded Contexts)
+
+**User story:** As the platform architect, I want infrastructure constructs modeled as parallel peer domain bounded contexts rather than sequentially dependent layers, so circular CDK dependencies are eliminated and new stateless APIs can be added without prop-drilling.
+
+| | |
+|---|---|
+| Alternatives considered | Passing construct instances sequentially (e.g., passing `Training` into `Inference`); monolithic stack with all resources inside one construct |
+| Decision | **A lightweight `PlatformContext` data class for dependency injection + DDD Bounded Context separation.** |
+| Rationale | Conceptually, Training is *not* passed into Inference, nor is Inference a specialized subset of Training. In Domain-Driven Design (DDD), an ML Platform consists of parallel peer Bounded Contexts: Feature Store (storage/retrieval), Experiment Tracking (metadata/artifacts), Model Catalog (orchestration rules), Training Execution (compute), and Inference Execution (scoring compute). To avoid cyclic CDK dependencies and prop-drilling, `component.py` instantiates a typed `PlatformContext` data class containing only shared infrastructure primitives (`vpc`, `feature_bucket`, `online_table`, `db_secret`, `cluster`). Every construct consumes only `PlatformContext`, remaining completely decoupled from peer constructs. |
+
+```mermaid
+graph TD
+    subgraph Core["Core Storage & Networking Context"]
+        CTX[PlatformContext<br/>VPC, S3 Buckets, DynamoDB, RDS Secret, ECS Cluster]
+    end
+    
+    subgraph Peer["Parallel Peer Bounded Contexts"]
+        FS[Feature Store<br/>Offline/Online Schemas & Materialization]
+        MLF[Experiment Tracking<br/>MLflow Registry & Artifacts]
+        CAT[Model Catalog API<br/>FastAPI / SQLModel Orchestration Rules]
+        TR[Training Execution<br/>Trainer Factory & Job Dispatch]
+        INF[Inference Execution<br/>Batch Scoring & S3 Prediction Sink]
+    end
+
+    CTX --> FS
+    CTX --> MLF
+    CTX --> CAT
+    CTX --> TR
+    CTX --> INF
+```
+
+### 2.27 Dynamic Model Scheduling via Catalog API (No CDK Redeploys)
+
+**User story:** As the platform owner, I want to add new model inference schedules and retraining rules via REST API without redeploying CDK infrastructure.
+
+| | |
+|---|---|
+| Alternatives considered | Hardcoding `aws_scheduler.CfnSchedule` resources per model inside CDK (requires `cdk deploy` per new model); Lambda cron dispatcher querying the database every minute |
+| Decision | **Generic REST routes (`/v1/models/...`) with dynamic boto3 EventBridge Schedule management.** |
+| Rationale | The FastAPI model catalog exposes generic RESTful endpoints (`POST /v1/models`, `PUT /v1/models/{model_name}/schedule`) rather than model-specific routes. To eliminate CDK redeployments when onboarding new models, the FastAPI Fargate service is granted IAM permissions to invoke `scheduler:CreateSchedule` and `events:PutRule`. When a new schedule is configured via API, the service uses `boto3` to dynamically create or update an AWS EventBridge Schedule targeting the shared `InferenceTaskDefinition`, injecting `{"MODEL_NAME": model_name}` as a container environment override. This keeps the platform infrastructure immutable while allowing unbounded model expansion. |
 
 ---
 
@@ -328,14 +376,17 @@ Everything stoppable is designed to be stopped between sessions:
 
 ---
 
-## 5. v2+/future extension roadmap (explicitly out of scope now)
+## 5. Extension roadmap beyond v2
 
-- Real-time inference: `get_online_features()` path, always-on or on-demand serving compute (Lambda/Function URL or small Fargate service), `feast materialize-incremental` on a tighter schedule
-- CI/CD: wire `ci.yml` (GitHub Actions) + `toolchain.py` (CDK Pipelines) against the existing multi-account SSO setup
-- Networking hardening: custom VPC, private subnets, NAT Gateway or VPC endpoints, ALB with HTTPS
-- Model-quality monitoring: drift/accuracy decay tracking, requires a ground-truth feedback loop
-- PyTorch `Trainer` implementation (GPU-capable training compute — SageMaker Training or AWS Batch)
-- Polars transformation layer at the Feast boundary
+See **§8** for the authoritative v1–v4 sequencing table. Items confirmed out of scope through v2:
+
+- Real-time inference: `get_online_features()` path, always-on or on-demand serving compute (Lambda/Function URL or small Fargate service) — v3
+- CI/CD: wire `ci.yml` (GitHub Actions) + `toolchain.py` (CDK Pipelines) — v3/v4
+- Networking hardening: custom VPC, private subnets, NAT Gateway or VPC endpoints, ALB with HTTPS — v4
+- Model-quality monitoring: drift/accuracy decay tracking, requires a ground-truth feedback loop — v3+
+- PyTorch `Trainer` implementation (GPU-capable training compute — SageMaker Training or AWS Batch) — v3+
+- Polars transformation layer at the Feast boundary — v3+
+- Full Data Platform ETL integration (AWS Glue, EMR Spark) — long-term, see `road-to-prod.md §6`
 
 ---
 
@@ -414,8 +465,8 @@ Formalizing what was previously an implicit "v1/v2 vs v2+" split, now that scope
 
 | Version | Scope | Networking posture |
 |---|---|---|
-| **v1** | Initial infra: feature store, experiment tracking, single-model training/batch inference, CloudWatch monitoring | Default VPC, public subnet, IP-locked SGs, no ALB/NAT (§2.10) |
-| **v2** *(current)* | Multi-model support: model catalog (§2.23) in the existing RDS instance, catalog CRUD API (§2.24), training dispatch pattern (§2.25), Step Functions orchestration fanning out over catalog-driven model configs (§2.20) | **Unchanged from v1** — catalog API reuses the same no-ALB/IP-locked pattern as MLflow (§2.24). No VPC/NAT/ALB added despite the new service. |
+| **v1** *(current)* | Initial infra: feature store, experiment tracking, single-model training/batch inference, CloudWatch monitoring | Default VPC, public subnet, IP-locked SGs, no ALB/NAT (§2.10) |
+| **v2** | Multi-model support: model catalog (§2.23) in the existing RDS instance, catalog CRUD API (§2.24), training dispatch pattern (§2.25), Step Functions orchestration fanning out over catalog-driven model configs (§2.20) | **Unchanged from v1** — catalog API reuses the same no-ALB/IP-locked pattern as MLflow (§2.24). No VPC/NAT/ALB added despite the new service. |
 | **v3** | Real-time inference (`get_online_features()` path) + Streamlit UI consuming the catalog API and a real-time predict endpoint | This is the actual trigger for hardening: the catalog API and predict endpoint need real authentication (API key or Cognito) the moment a UI or a second person is a genuine consumer — auth, not networking, is the first thing that changes here. |
 | **v4** | Full production hardening | Custom VPC with private subnets, NAT Gateway or VPC endpoints, ALB + ACM (HTTPS), WAF on the public-facing ALB, Secrets Manager rotation enabled, CVE scanning in CI, IAM grants tightened from broad `grant_*` calls to explicit scoped `PolicyStatement`s (§6.3–§6.5). This is the ~$50/month bundle — deliberately deferred until v3's real multi-user/public-exposure need materializes, not paid for preemptively in v2. |
 
