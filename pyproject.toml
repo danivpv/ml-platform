@@ -37,7 +37,7 @@ conflicts = [[{ group = "infra" }, { group = "inference-training" }]]
 [project.scripts]
 ml-platform = "ml_platform:main"
 ml-platform-train = "ml_platform.training.runtime.train:main"
-ml-platform-predict = "ml_platform.inference.runtime.predict:main"
+ml-platform-predict = "ml_platform.inference.batch.runtime.predict:main"
 
 [build-system]
 requires = ["uv_build>=0.11.25,<0.12.0"]

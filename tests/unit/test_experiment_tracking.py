@@ -10,7 +10,11 @@ import aws_cdk as cdk
 import pytest
 from aws_cdk import assertions, aws_ec2 as ec2
 
-import constants
+from ml_platform.constants import SSM_MLFLOW_TRACKING_URI
+from ml_platform.experiment_tracking.constants import (
+    MLFLOW_FARGATE_CPU,
+    MLFLOW_FARGATE_MEMORY_MB,
+)
 from ml_platform.experiment_tracking.infrastructure import (
     ExperimentTrackingConstruct,
 )
@@ -148,7 +152,7 @@ class TestMlflowService:
     def test_fargate_task_definition_cpu(self, template: assertions.Template) -> None:
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
-            {"Cpu": str(constants.MLFLOW_FARGATE_CPU)},
+            {"Cpu": str(MLFLOW_FARGATE_CPU)},
         )
 
     def test_fargate_task_definition_memory(
@@ -156,7 +160,7 @@ class TestMlflowService:
     ) -> None:
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
-            {"Memory": str(constants.MLFLOW_FARGATE_MEMORY_MB)},
+            {"Memory": str(MLFLOW_FARGATE_MEMORY_MB)},
         )
 
 
@@ -167,5 +171,5 @@ class TestSsmParameter:
     def test_ssm_parameter_name(self, template: assertions.Template) -> None:
         template.has_resource_properties(
             "AWS::SSM::Parameter",
-            {"Name": constants.SSM_MLFLOW_TRACKING_URI},
+            {"Name": SSM_MLFLOW_TRACKING_URI},
         )

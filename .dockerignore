@@ -54,5 +54,6 @@ docs/
 tests/
 scripts/
 *.md
+!README.md
 TEST_REPORT.md
 predictions*.jsonl

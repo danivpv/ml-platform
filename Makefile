@@ -14,9 +14,10 @@ lint:
 	uv run ruff format
 
 type-check:
-	uv run --group infra ty check src/ml_platform/*/infrastructure.py src/ml_platform/component.py app.py constants.py --verbose
-	uv run --group inference-training ty check src/ml_platform/{inference,training,feature_store}/runtime src/ml_platform/common --verbose
+	uv run --group infra ty check src/ml_platform/*/infrastructure.py src/ml_platform/component.py app.py src/ml_platform/*.py --verbose
+	uv run --group inference-training ty check src/ml_platform/{inference/batch,training,feature_store}/runtime --verbose
 	uv run --group mlflow ty check src/ml_platform/experiment_tracking/runtime --verbose
+	uv run --group api ty check src/ml_platform/api/runtime --verbose
 
 test:
 	uv run --group infra pytest --ignore=cdk.out tests/unit/{test_experiment_tracking,test_feature_store,test_inference,test_monitoring,test_training}.py

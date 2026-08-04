@@ -17,8 +17,12 @@ from aws_cdk import (
     aws_ssm as ssm,
 )
 
-import constants
-from ml_platform.inference.infrastructure import InferenceConstruct
+from ml_platform.inference.constants import (
+    INFERENCE_SCHEDULE_EXPR,
+    TASK_CPU,
+    TASK_MEMORY_MB,
+)
+from ml_platform.inference.batch.infrastructure import InferenceConstruct
 
 _VPC_CONTEXT_KEY = (
     "vpc-provider:account=123456789012:filter.isDefault=true"
@@ -90,13 +94,13 @@ class TestInferenceTaskDefinition:
     def test_task_cpu(self, template: assertions.Template) -> None:
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
-            {"Cpu": str(constants.TASK_CPU)},
+            {"Cpu": str(TASK_CPU)},
         )
 
     def test_task_memory(self, template: assertions.Template) -> None:
         template.has_resource_properties(
             "AWS::ECS::TaskDefinition",
-            {"Memory": str(constants.TASK_MEMORY_MB)},
+            {"Memory": str(TASK_MEMORY_MB)},
         )
 
     def test_container_log_config(self, template: assertions.Template) -> None:
@@ -128,7 +132,7 @@ class TestEventBridgeScheduler:
     def test_schedule_expression(self, template: assertions.Template) -> None:
         template.has_resource_properties(
             "AWS::Scheduler::Schedule",
-            {"ScheduleExpression": constants.INFERENCE_SCHEDULE_EXPR},
+            {"ScheduleExpression": INFERENCE_SCHEDULE_EXPR},
         )
 
     def test_schedule_timezone_utc(self, template: assertions.Template) -> None:

@@ -44,8 +44,9 @@ from feast import FeatureStore
 
 from pathlib import Path
 
-from ml_platform.common.logging_config import configure_logging
-from ml_platform.common.schemas import InferenceConfig, PredictionRecord
+from ml_platform.logger import configure_logging
+from ml_platform.inference.batch.runtime.models import PredictionRecord
+from ml_platform.inference.batch.runtime.config import InferenceConfig
 import ml_platform.feature_store.runtime.feature_repo as feature_repo_pkg
 
 logger = logging.getLogger(__name__)
@@ -241,7 +242,7 @@ def main() -> None:
     logger.info("=== ML Platform — Inference container starting ===")
 
     try:
-        config = InferenceConfig()  # type: ignore  # pydantic-settings reads from env
+        config = InferenceConfig(**{})  # pydantic-settings reads from env
     except Exception as exc:
         logging.getLogger(__name__).error(
             "Configuration validation failed — check ECS env vars",

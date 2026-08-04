@@ -1,6 +1,6 @@
 """
-inference/infrastructure.py
-============================
+inference/batch/infrastructure.py
+==================================
 CDK construct for the batch inference Fargate task and its EventBridge Scheduler.
 
 Resources provisioned:
@@ -35,7 +35,6 @@ Env var contract (available inside the running container):
 """
 
 import json
-from pathlib import Path
 from typing import Any
 
 from aws_cdk import (
@@ -48,9 +47,12 @@ from aws_cdk import (
 from aws_cdk.aws_ecr_assets import DockerImageAsset
 from constructs import Construct
 
-import constants
-
-_ROOT_DIR = str(Path(__file__).resolve().parents[3])
+from ml_platform.constants import ROOT_DIR
+from ml_platform.inference.constants import (
+    INFERENCE_SCHEDULE_EXPR,
+    TASK_CPU,
+    TASK_MEMORY_MB,
+)
 
 
 class InferenceConstruct(Construct):
@@ -72,6 +74,7 @@ class InferenceConstruct(Construct):
       task_role       — IAM role (component.py applies grants)
       task_sg         — security group
       schedule        — CfnSchedule (L1 EventBridge Scheduler rule)
+      scheduler_role  — IAM role for EventBridge Scheduler
     """
 
     def __init__(
@@ -104,15 +107,15 @@ class InferenceConstruct(Construct):
         inference_image = DockerImageAsset(
             self,
             "InferenceImage",
-            directory=_ROOT_DIR,
-            file="src/ml_platform/inference/runtime/Dockerfile",
+            directory=ROOT_DIR,
+            file="src/ml_platform/inference/batch/runtime/Dockerfile",
         )
 
         self.task_definition = ecs.FargateTaskDefinition(
             self,
             "InferenceTaskDef",
-            cpu=constants.TASK_CPU,
-            memory_limit_mib=constants.TASK_MEMORY_MB,
+            cpu=TASK_CPU,
+            memory_limit_mib=TASK_MEMORY_MB,
         )
 
         # Grant SSM read so the task can resolve the MLflow URI parameter.
@@ -140,14 +143,14 @@ class InferenceConstruct(Construct):
         #   2. iam:PassRole for the task role and the execution role
         #
         # PRD §2.22: using CfnSchedule (L1) — no stable L2 yet in aws-cdk-lib.
-        scheduler_role = iam.Role(
+        self.scheduler_role = iam.Role(
             self,
             "SchedulerRole",
             assumed_by=iam.ServicePrincipal("scheduler.amazonaws.com"),  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
             description="Allow EventBridge Scheduler to launch the inference ECS task",
         )
 
-        scheduler_role.add_to_policy(
+        self.scheduler_role.add_to_policy(
             iam.PolicyStatement(
                 sid="RunInferenceTask",
                 actions=["ecs:RunTask"],
@@ -160,7 +163,7 @@ class InferenceConstruct(Construct):
             )
         )
 
-        scheduler_role.add_to_policy(
+        self.scheduler_role.add_to_policy(
             iam.PolicyStatement(
                 sid="PassTaskRoles",
                 actions=["iam:PassRole"],
@@ -181,7 +184,7 @@ class InferenceConstruct(Construct):
             "InferenceSchedule",
             # Nightly at 03:00 UTC — adjust INFERENCE_SCHEDULE_EXPR in
             # constants.py; no infrastructure.py change needed.
-            schedule_expression=constants.INFERENCE_SCHEDULE_EXPR,
+            schedule_expression=INFERENCE_SCHEDULE_EXPR,
             schedule_expression_timezone="UTC",
             flexible_time_window=scheduler.CfnSchedule.FlexibleTimeWindowProperty(
                 mode="OFF",
@@ -190,7 +193,7 @@ class InferenceConstruct(Construct):
             target=scheduler.CfnSchedule.TargetProperty(
                 # For ECS RunTask, the target ARN is the cluster ARN.
                 arn=cluster.cluster_arn,
-                role_arn=scheduler_role.role_arn,
+                role_arn=self.scheduler_role.role_arn,
                 ecs_parameters=scheduler.CfnSchedule.EcsParametersProperty(
                     task_definition_arn=self.task_definition.task_definition_arn,
                     task_count=1,

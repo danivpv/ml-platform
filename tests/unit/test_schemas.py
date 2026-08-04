@@ -25,14 +25,11 @@ from datetime import datetime, timezone
 import pandas as pd
 import pytest
 
-from ml_platform.common.schemas import (
-    EntityRow,
-    FeastRepoConfig,
-    InferenceConfig,
-    PredictionRecord,
-    TrainingConfig,
-)
-from ml_platform.common.trainer import PyTorchTrainer, SklearnTrainer, Trainer
+from ml_platform.training.runtime.models import EntityRow
+from ml_platform.inference.batch.runtime.models import PredictionRecord
+from ml_platform.feature_store.runtime.config import FeastRepoConfig
+from ml_platform.inference.batch.runtime.config import InferenceConfig
+from ml_platform.training.runtime.config import TrainingConfig
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────
@@ -154,44 +151,6 @@ class TestPredictionRecord:
         restored = PredictionRecord.model_validate_json(json_str)
         assert restored.entity_id == rec.entity_id
         assert restored.score == pytest.approx(rec.score)
-
-
-# ── Trainer protocol ───────────────────────────────────────────────────────
-
-
-class TestTrainerProtocol:
-    def test_sklearn_trainer_is_trainer(self) -> None:
-        """SklearnTrainer satisfies the Trainer Protocol (runtime_checkable)."""
-        trainer = SklearnTrainer()
-        assert isinstance(trainer, Trainer)
-
-    def test_pytorch_trainer_is_trainer(self) -> None:
-        """PyTorchTrainer satisfies the Trainer Protocol structurally."""
-        trainer = PyTorchTrainer()
-        assert isinstance(trainer, Trainer)
-
-    def test_sklearn_trainer_fit(
-        self, synthetic_X: pd.DataFrame, synthetic_y: pd.Series
-    ) -> None:
-        """SklearnTrainer.fit() runs without error on synthetic data."""
-        trainer = SklearnTrainer()
-        trainer.fit(synthetic_X, synthetic_y)
-        # Post-fit: the pipeline's final estimator should have classes_.
-        assert hasattr(trainer._pipeline.named_steps["clf"], "classes_")
-
-    def test_pytorch_trainer_fit_raises(
-        self, synthetic_X: pd.DataFrame, synthetic_y: pd.Series
-    ) -> None:
-        """PyTorchTrainer.fit() raises NotImplementedError (seam exists, not implemented)."""
-        trainer = PyTorchTrainer()
-        with pytest.raises(NotImplementedError, match="PyTorchTrainer"):
-            trainer.fit(synthetic_X, synthetic_y)
-
-    def test_pytorch_trainer_save_raises(self) -> None:
-        """PyTorchTrainer.save() raises NotImplementedError."""
-        trainer = PyTorchTrainer()
-        with pytest.raises(NotImplementedError, match="PyTorchTrainer"):
-            trainer.save(run_id="fake-run-id")
 
 
 # ── TrainingConfig / InferenceConfig ──────────────────────────────────────

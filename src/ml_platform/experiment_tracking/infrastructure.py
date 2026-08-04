@@ -24,7 +24,6 @@ Security concerns (PRD §6):
     only enforcement layer (v2: private subnet + NAT/VPC endpoints).
 """
 
-from pathlib import Path
 from typing import Any
 
 from aws_cdk import (
@@ -36,12 +35,17 @@ from aws_cdk import (
     aws_s3 as s3,
     aws_ssm as ssm,
 )
+from ml_platform.config import settings
+from ml_platform.constants import ROOT_DIR
 from aws_cdk.aws_ecr_assets import DockerImageAsset
 from constructs import Construct
-
-import constants
-
-_ROOT_DIR = str(Path(__file__).resolve().parents[3])
+from ml_platform.experiment_tracking.constants import (
+    MLFLOW_IMAGE_PORT,
+    MLFLOW_FARGATE_CPU,
+    MLFLOW_FARGATE_MEMORY_MB,
+    RDS_DB_NAME,
+    RDS_PORT,
+)
 
 
 class ExperimentTrackingConstruct(Construct):
@@ -117,14 +121,14 @@ class ExperimentTrackingConstruct(Construct):
         )
         self.mlflow_sg.add_ingress_rule(
             peer=ec2.Peer.ipv4(developer_cidr),
-            connection=ec2.Port.tcp(constants.MLFLOW_IMAGE_PORT),
+            connection=ec2.Port.tcp(MLFLOW_IMAGE_PORT),
             description="MLflow UI from developer IP",
         )
 
         # Wire: RDS allows 5432 from the MLflow SG
         self.rds_sg.add_ingress_rule(
             peer=self.mlflow_sg,
-            connection=ec2.Port.tcp(constants.RDS_PORT),
+            connection=ec2.Port.tcp(RDS_PORT),
             description="Postgres from MLflow Fargate task",
         )
 
@@ -145,9 +149,9 @@ class ExperimentTrackingConstruct(Construct):
             ),
             credentials=rds.Credentials.from_generated_secret(
                 "mlflow",
-                secret_name=f"{constants.APP_NAME}/{constants.STAGE}/rds-mlflow",
+                secret_name=f"{settings.app_name}/{settings.stage}/rds-mlflow",
             ),
-            database_name=constants.RDS_DB_NAME,
+            database_name=RDS_DB_NAME,
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
             publicly_accessible=False,
@@ -183,7 +187,7 @@ class ExperimentTrackingConstruct(Construct):
         self.mlflow_uri_param = ssm.StringParameter(
             self,
             "MlflowUriParam",
-            parameter_name=constants.SSM_MLFLOW_TRACKING_URI,
+            parameter_name=settings.ssm_mlflow_tracking_uri,
             string_value="http://REPLACE_AFTER_DEPLOY:5000",
             description=(
                 "MLflow tracking server URI. "
@@ -200,15 +204,15 @@ class ExperimentTrackingConstruct(Construct):
         mlflow_image = DockerImageAsset(
             self,
             "MlflowImage",
-            directory=_ROOT_DIR,
+            directory=ROOT_DIR,
             file="src/ml_platform/experiment_tracking/runtime/Dockerfile",
         )
 
         task_def = ecs.FargateTaskDefinition(
             self,
             "MlflowTaskDef",
-            cpu=constants.MLFLOW_FARGATE_CPU,
-            memory_limit_mib=constants.MLFLOW_FARGATE_MEMORY_MB,
+            cpu=MLFLOW_FARGATE_CPU,
+            memory_limit_mib=MLFLOW_FARGATE_MEMORY_MB,
         )
 
         # Grant the MLflow task role access to the artifact bucket.
@@ -226,10 +230,10 @@ class ExperimentTrackingConstruct(Construct):
         task_def.add_container(
             "MlflowContainer",
             image=ecs.ContainerImage.from_docker_image_asset(mlflow_image),
-            port_mappings=[ecs.PortMapping(container_port=constants.MLFLOW_IMAGE_PORT)],
+            port_mappings=[ecs.PortMapping(container_port=MLFLOW_IMAGE_PORT)],
             environment={
                 "MLFLOW_HOST": "0.0.0.0",
-                "MLFLOW_PORT": str(constants.MLFLOW_IMAGE_PORT),
+                "MLFLOW_PORT": str(MLFLOW_IMAGE_PORT),
                 # S3 URI is safe to embed statically — bucket name is a CDK token
                 "MLFLOW_ARTIFACT_ROOT": (
                     f"s3://{self.artifacts_bucket.bucket_name}/artifacts"

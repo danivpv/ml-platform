@@ -30,7 +30,7 @@ from feast import FeatureView, Field
 from feast.infra.offline_stores.file_source import FileSource
 from feast.types import Float64, Int64
 
-from ml_platform.common.schemas import FeastRepoConfig
+from ml_platform.feature_store.runtime.config import FeastRepoConfig
 from ml_platform.feature_store.runtime.feature_repo.entities import customer
 
 # ── Data source ────────────────────────────────────────────────────────────

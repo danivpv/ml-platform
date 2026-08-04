@@ -30,7 +30,6 @@ Env var contract (available inside the running container):
   AWS_DEFAULT_REGION     — set by ECS agent to the task's region
 """
 
-from pathlib import Path
 from typing import Any
 
 from aws_cdk import (
@@ -41,9 +40,8 @@ from aws_cdk import (
 from aws_cdk.aws_ecr_assets import DockerImageAsset
 from constructs import Construct
 
-import constants
-
-_ROOT_DIR = str(Path(__file__).resolve().parents[3])
+from ml_platform.constants import ROOT_DIR
+from ml_platform.training.constants import TASK_CPU, TASK_MEMORY_MB
 
 
 class TrainingConstruct(Construct):
@@ -94,15 +92,15 @@ class TrainingConstruct(Construct):
         training_image = DockerImageAsset(
             self,
             "TrainingImage",
-            directory=_ROOT_DIR,
+            directory=ROOT_DIR,
             file="src/ml_platform/training/runtime/Dockerfile",
         )
 
         self.task_definition = ecs.FargateTaskDefinition(
             self,
             "TrainingTaskDef",
-            cpu=constants.TASK_CPU,
-            memory_limit_mib=constants.TASK_MEMORY_MB,
+            cpu=TASK_CPU,
+            memory_limit_mib=TASK_MEMORY_MB,
         )
 
         # Grant SSM read so the task can resolve the MLflow URI parameter.

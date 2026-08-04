@@ -17,22 +17,35 @@ def main():
     if "FEATURE_BUCKET" not in os.environ or "ONLINE_TABLE" not in os.environ:
         try:
             import boto3
-            print("Auto-discovering FEATURE_BUCKET and ONLINE_TABLE from CloudFormation stack MLPlatformStateful...")
+
+            print(
+                "Auto-discovering FEATURE_BUCKET and ONLINE_TABLE from CloudFormation stack MLPlatformStateful..."
+            )
             cf = boto3.client("cloudformation")
             res = cf.describe_stacks(StackName="MLPlatformStateful")
             for out in res["Stacks"][0].get("Outputs", []):
-                if out["OutputKey"] == "FeatureBucketName" and "FEATURE_BUCKET" not in os.environ:
+                if (
+                    out["OutputKey"] == "FeatureBucketName"
+                    and "FEATURE_BUCKET" not in os.environ
+                ):
                     os.environ["FEATURE_BUCKET"] = out["OutputValue"]
-                elif out["OutputKey"] == "OnlineTableName" and "ONLINE_TABLE" not in os.environ:
+                elif (
+                    out["OutputKey"] == "OnlineTableName"
+                    and "ONLINE_TABLE" not in os.environ
+                ):
                     os.environ["ONLINE_TABLE"] = out["OutputValue"]
-            print(f"Auto-discovered FEATURE_BUCKET={os.environ.get('FEATURE_BUCKET')}, ONLINE_TABLE={os.environ.get('ONLINE_TABLE')}")
+            print(
+                f"Auto-discovered FEATURE_BUCKET={os.environ.get('FEATURE_BUCKET')}, ONLINE_TABLE={os.environ.get('ONLINE_TABLE')}"
+            )
         except Exception as e:
             print(f"Failed to auto-discover env vars from CloudFormation: {e}")
 
     if "FEATURE_BUCKET" not in os.environ:
         raise ValueError("FEATURE_BUCKET environment variable must be set.")
     if "ONLINE_TABLE" not in os.environ:
-        raise ValueError("ONLINE_TABLE environment variable must be set for Feast online store config.")
+        raise ValueError(
+            "ONLINE_TABLE environment variable must be set for Feast online store config."
+        )
 
     fb = os.environ["FEATURE_BUCKET"]
     print(f"Connecting to Feast FeatureStore using FEATURE_BUCKET={fb}...")
@@ -68,7 +81,9 @@ def main():
     if nulls > 0:
         print("WARNING: Some feature values were null!")
     else:
-        print("LEAKAGE & JOIN CHECK PASSED: All records matched point-in-time features cleanly.")
+        print(
+            "LEAKAGE & JOIN CHECK PASSED: All records matched point-in-time features cleanly."
+        )
 
 
 if __name__ == "__main__":

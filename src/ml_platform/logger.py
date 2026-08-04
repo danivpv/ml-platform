@@ -1,5 +1,5 @@
 """
-common/logging_config.py
+logger.py
 =========================
 Structured JSON logging setup for all runtime containers.
 
@@ -9,7 +9,7 @@ CloudWatch Logs Insights to query fields like level, message, run_id, etc.
 without regex parsing.
 
 Usage:
-  from ml_platform.common.logging_config import configure_logging
+  from ml_platform.logger import configure_logging
   configure_logging()  # call once at the top of main()
 """
 

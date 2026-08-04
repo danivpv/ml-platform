@@ -131,7 +131,9 @@ def _leakage_check(feature_df: pd.DataFrame, labels_df: pd.DataFrame) -> None:
     for col in ("event_timestamp_feature", "event_timestamp_label"):
         if merged[col].dt.tz is None:
             merged[col] = merged[col].dt.tz_localize(timezone.utc)
-    n_leaking = (merged["event_timestamp_feature"] >= merged["event_timestamp_label"]).sum()
+    n_leaking = (
+        merged["event_timestamp_feature"] >= merged["event_timestamp_label"]
+    ).sum()
     if n_leaking > 0:
         logger.warning(
             "LEAKAGE WARN: %d rows have feature_ts >= label_ts (Feast will exclude them).",
@@ -152,18 +154,23 @@ def _to_parquet_bytes(df: pd.DataFrame) -> bytes:
 
 def upload_to_s3(df: pd.DataFrame, bucket: str, key: str) -> None:
     import boto3
+
     body = _to_parquet_bytes(df)
     boto3.client("s3").put_object(
         Bucket=bucket, Key=key, Body=body, ContentType="application/octet-stream"
     )
-    logger.info("Uploaded  s3://%s/%s  (%d rows, %d bytes)", bucket, key, len(df), len(body))
+    logger.info(
+        "Uploaded  s3://%s/%s  (%d rows, %d bytes)", bucket, key, len(df), len(body)
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate and upload synthetic ML Platform feature/label data."
     )
-    parser.add_argument("--dry-run", action="store_true", help="Print plan; no S3 writes.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print plan; no S3 writes."
+    )
     parser.add_argument("--n-customers", type=int, default=N_CUSTOMERS)
     args = parser.parse_args()
 
@@ -171,7 +178,10 @@ def main() -> None:
     if not bucket and not args.dry_run:
         try:
             import boto3
-            logger.info("FEATURE_BUCKET env var not set. Auto-discovering from CloudFormation stack MLPlatformStateful...")
+
+            logger.info(
+                "FEATURE_BUCKET env var not set. Auto-discovering from CloudFormation stack MLPlatformStateful..."
+            )
             cf = boto3.client("cloudformation")
             res = cf.describe_stacks(StackName="MLPlatformStateful")
             for out in res["Stacks"][0].get("Outputs", []):
@@ -200,8 +210,12 @@ def main() -> None:
     train_entities_df = labels_df[["entity_id", "event_timestamp"]].copy()
     score_entities_df = generate_score_entities(feature_df)
 
-    logger.info("Feature shape: %s  columns: %s", feature_df.shape, list(feature_df.columns))
-    logger.info("Label shape:   %s  columns: %s", labels_df.shape, list(labels_df.columns))
+    logger.info(
+        "Feature shape: %s  columns: %s", feature_df.shape, list(feature_df.columns)
+    )
+    logger.info(
+        "Label shape:   %s  columns: %s", labels_df.shape, list(labels_df.columns)
+    )
     logger.info(
         "Feature ts range: %s -> %s",
         feature_df["event_timestamp"].min().strftime("%Y-%m-%d"),

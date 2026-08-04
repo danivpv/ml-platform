@@ -46,9 +46,14 @@ from sklearn.model_selection import train_test_split
 
 from pathlib import Path
 
-from ml_platform.common.logging_config import configure_logging
-from ml_platform.common.schemas import EntityRow, TrainingConfig
-from ml_platform.common.trainer import SklearnTrainer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+
+from ml_platform.logger import configure_logging
+from ml_platform.training.runtime.models import EntityRow
+from ml_platform.training.runtime.config import TrainingConfig
+from ml_platform.training.runtime.exceptions import EmptyDatasetError
 import ml_platform.feature_store.runtime.feature_repo as feature_repo_pkg
 
 # Module-level logger — configure_logging() sets up the JSON formatter.
@@ -56,7 +61,6 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
-MODEL_NAME = "ml-platform-churn"
 EXPERIMENT_NAME = "ml-platform-training"
 CHAMPION_ALIAS = "champion"
 LABEL_COLUMN = "churned"
@@ -224,10 +228,7 @@ def train(config: TrainingConfig) -> None:
     )
 
     if merged.empty:
-        raise ValueError(
-            "Merged training dataset is empty — check that entity IDs and "
-            "event timestamps align between the feature parquet and labels parquet."
-        )
+        raise EmptyDatasetError()
 
     X = merged[FEATURE_COLUMNS].copy()
     y = merged[LABEL_COLUMN].copy()
@@ -272,18 +273,42 @@ def train(config: TrainingConfig) -> None:
         )
 
         # ── Train ─────────────────────────────────────────────────────────
-        trainer = SklearnTrainer()
-        trainer.fit(X_train, y_train)
+        # Vanilla Scikit-Learn implementation as the platform standard
+        pipeline = Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                (
+                    "clf",
+                    RandomForestClassifier(
+                        n_estimators=100,
+                        random_state=42,
+                        n_jobs=-1,
+                    ),
+                ),
+            ]
+        )
+
+        logger.info(
+            "Fitting Scikit-Learn Pipeline",
+            extra={"n_samples": len(X_train), "n_features": X_train.shape[1]},
+        )
+        pipeline.fit(X_train, y_train)
 
         # ── Evaluate ──────────────────────────────────────────────────────
-        y_pred = pd.Series(trainer._pipeline.predict(X_val))
-        y_prob = pd.Series(trainer._pipeline.predict_proba(X_val)[:, 1])
+        y_pred = pd.Series(pipeline.predict(X_val))
+        y_prob = pd.Series(pipeline.predict_proba(X_val)[:, 1])
         metrics = _compute_metrics(y_val.reset_index(drop=True), y_pred, y_prob)
         mlflow.log_metrics(metrics)
         logger.info("Metrics logged", extra={"run_id": run_id, **metrics})
 
         # ── Log model ────────────────────────────────────────────────────
-        model_uri = trainer.save(run_id=run_id, artifact_path="model")
+
+        model_info = mlflow.sklearn.log_model(
+            sk_model=pipeline,
+            artifact_path="model",
+            input_example=X_train.head(1),
+        )
+        model_uri = model_info.model_uri
         logger.info(
             "Model artifact logged",
             extra={"run_id": run_id, "model_uri": model_uri},
@@ -291,10 +316,10 @@ def train(config: TrainingConfig) -> None:
 
         # ── Register + alias ─────────────────────────────────────────────
         # Use alias-based promotion (not deprecated stages — road-to-prod §2).
-        # models:/<MODEL_NAME>@champion is the stable URI for inference.
+        # models:/<model_name>@champion is the stable URI for inference.
         registered_model = mlflow.register_model(
             model_uri=f"runs:/{run_id}/model",
-            name=MODEL_NAME,
+            name=config.model_name,
             tags={
                 "run_id": run_id,
                 "f1_score": str(round(metrics["f1_score"], 4)),
@@ -305,7 +330,7 @@ def train(config: TrainingConfig) -> None:
         logger.info(
             "Model registered",
             extra={
-                "model_name": MODEL_NAME,
+                "model_name": config.model_name,
                 "version": version,
                 "run_id": run_id,
             },
@@ -313,15 +338,15 @@ def train(config: TrainingConfig) -> None:
 
         client = MlflowClient()
         client.set_registered_model_alias(
-            name=MODEL_NAME,
+            name=config.model_name,
             alias=CHAMPION_ALIAS,
             version=version,
         )
-        champion_uri = f"models:/{MODEL_NAME}@{CHAMPION_ALIAS}"
+        champion_uri = f"models:/{config.model_name}@{CHAMPION_ALIAS}"
         logger.info(
             "Champion alias assigned",
             extra={
-                "model_name": MODEL_NAME,
+                "model_name": config.model_name,
                 "alias": CHAMPION_ALIAS,
                 "version": version,
                 "champion_uri": champion_uri,
@@ -341,7 +366,7 @@ def main() -> None:
     logger.info("=== ML Platform — Training container starting ===")
 
     try:
-        config = TrainingConfig()  # type: ignore  # pydantic-settings reads from env
+        config = TrainingConfig(**{})  # pydantic-settings reads from env
     except Exception as exc:
         # pydantic-settings raises ValidationError if a required env var is missing.
         logging.getLogger(__name__).error(
@@ -353,6 +378,7 @@ def main() -> None:
     logger.info(
         "Configuration loaded",
         extra={
+            "model_name": config.model_name,
             "feature_bucket": config.feature_bucket,
             "online_table": config.online_table,
             "artifacts_bucket": config.artifacts_bucket,

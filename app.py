@@ -20,14 +20,14 @@ See SETUP.md for the required pre-deploy checklist.
 
 import aws_cdk as cdk
 
-import constants
 from ml_platform.component import MLPlatformStatefulStack, MLPlatformStatelessStack
+from ml_platform.config import settings
 
 app = cdk.App()
 
 env = cdk.Environment(
-    account=constants.ACCOUNT,
-    region=constants.REGION,
+    account=settings.account,
+    region=settings.region,
 )
 
 stateful = MLPlatformStatefulStack(
@@ -53,7 +53,7 @@ stateless = MLPlatformStatelessStack(
 stateless.add_dependency(stateful)
 
 # Apply global cost-tracking tags recursively to all resources in the application.
-cdk.Tags.of(app).add("Project", constants.APP_NAME)
-cdk.Tags.of(app).add("Environment", constants.STAGE)
+cdk.Tags.of(app).add("Project", settings.app_name)
+cdk.Tags.of(app).add("Environment", settings.stage)
 
 app.synth()

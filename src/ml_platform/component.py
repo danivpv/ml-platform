@@ -10,7 +10,7 @@ Stack topology:
 
   MLPlatformStatelessStack  — compute + observability (control plane)
     ├── TrainingConstruct    (Fargate task def)
-    ├── InferenceConstruct   (Fargate task def + EventBridge Scheduler)
+    ├── BatchInferenceConstruct   (Fargate task def + EventBridge Scheduler)
     └── MonitoringConstruct  (CloudWatch dashboard + alarms + SNS)
 
 Separation rationale (PRD §2.18):
@@ -59,12 +59,16 @@ from aws_cdk import (
 )
 from constructs import Construct
 
-import constants
+from ml_platform.config import settings
+from ml_platform.constants import DEVELOPER_CIDR
+from ml_platform.experiment_tracking.constants import MLFLOW_IMAGE_PORT, RDS_PORT
+from ml_platform.monitoring.constants import ALARM_EMAIL
+from ml_platform.api.infrastructure import ApiConstruct
 from ml_platform.experiment_tracking.infrastructure import (
     ExperimentTrackingConstruct,
 )
 from ml_platform.feature_store.infrastructure import FeatureStoreConstruct
-from ml_platform.inference.infrastructure import InferenceConstruct
+from ml_platform.inference.batch.infrastructure import InferenceConstruct
 from ml_platform.monitoring.infrastructure import MonitoringConstruct
 from ml_platform.training.infrastructure import TrainingConstruct
 
@@ -90,17 +94,17 @@ class MLPlatformStatefulStack(Stack):
         # CDK looks up the default VPC via a context provider call; the result
         # is cached in cdk.context.json and committed to version control.
         vpc = ec2.Vpc.from_lookup(self, "DefaultVpc", is_default=True)
-
-        # ── Feature store ─────────────────────────────────────────────────
         self.feature_store = FeatureStoreConstruct(self, "FeatureStore")
-
-        # ── Experiment tracking ───────────────────────────────────────────
         self.experiment_tracking = ExperimentTrackingConstruct(
             self,
             "ExperimentTracking",
             vpc=vpc,
-            developer_cidr=constants.DEVELOPER_CIDR,
+            developer_cidr=DEVELOPER_CIDR,
         )
+        # rds_instance.secret is always populated by CDK when
+        # generate_secret_rotation=True (default for DatabaseInstance).
+        rds_secret_ref = self.experiment_tracking.rds_instance.secret
+        assert rds_secret_ref is not None, "RDS secret must be set by CDK"
 
         # ── CfnOutputs ────────────────────────────────────────────────────
         CfnOutput(
@@ -108,26 +112,22 @@ class MLPlatformStatefulStack(Stack):
             "FeatureBucketName",
             value=self.feature_store.bucket.bucket_name,
             description="S3 bucket for Feast offline store and registry",
-            export_name=f"{constants.APP_NAME}-{constants.STAGE}-feature-bucket",
+            export_name=f"{settings.app_name}-{settings.stage}-feature-bucket",
         )
         CfnOutput(
             self,
             "OnlineTableName",
             value=self.feature_store.online_table.table_name,
             description="DynamoDB table for Feast online store",
-            export_name=f"{constants.APP_NAME}-{constants.STAGE}-online-table",
+            export_name=f"{settings.app_name}-{settings.stage}-online-table",
         )
         CfnOutput(
             self,
             "ArtifactsBucketName",
             value=self.experiment_tracking.artifacts_bucket.bucket_name,
             description="S3 bucket for MLflow artifacts",
-            export_name=f"{constants.APP_NAME}-{constants.STAGE}-artifacts-bucket",
+            export_name=f"{settings.app_name}-{settings.stage}-artifacts-bucket",
         )
-        # rds_instance.secret is always populated by CDK when
-        # generate_secret_rotation=True (default for DatabaseInstance).
-        rds_secret_ref = self.experiment_tracking.rds_instance.secret
-        assert rds_secret_ref is not None, "RDS secret must be set by CDK"
         CfnOutput(
             self,
             "RdsSecretArn",
@@ -152,7 +152,7 @@ class MLPlatformStatefulStack(Stack):
             "ClusterArn",
             value=self.experiment_tracking.cluster.cluster_arn,
             description="ECS cluster ARN (shared by MLflow, training, and inference)",
-            export_name=f"{constants.APP_NAME}-{constants.STAGE}-cluster-arn",
+            export_name=f"{settings.app_name}-{settings.stage}-cluster-arn",
         )
 
 
@@ -191,6 +191,8 @@ class MLPlatformStatelessStack(Stack):
         mlflow_uri_param = stateful.experiment_tracking.mlflow_uri_param
         rds_sg = stateful.experiment_tracking.rds_sg
         mlflow_sg = stateful.experiment_tracking.mlflow_sg
+        rds_secret = stateful.experiment_tracking.rds_instance.secret
+        assert rds_secret is not None, "RDS secret must be set by CDK"
 
         # ── Training ──────────────────────────────────────────────────────
         self.training = TrainingConstruct(
@@ -253,8 +255,8 @@ class MLPlatformStatelessStack(Stack):
             group_id=mlflow_sg.security_group_id,
             source_security_group_id=self.training.task_sg.security_group_id,
             ip_protocol="tcp",
-            from_port=constants.MLFLOW_IMAGE_PORT,
-            to_port=constants.MLFLOW_IMAGE_PORT,
+            from_port=MLFLOW_IMAGE_PORT,
+            to_port=MLFLOW_IMAGE_PORT,
             description="MLflow API from training task",
         )
         ec2.CfnSecurityGroupIngress(
@@ -263,8 +265,8 @@ class MLPlatformStatelessStack(Stack):
             group_id=mlflow_sg.security_group_id,
             source_security_group_id=self.inference.task_sg.security_group_id,
             ip_protocol="tcp",
-            from_port=constants.MLFLOW_IMAGE_PORT,
-            to_port=constants.MLFLOW_IMAGE_PORT,
+            from_port=MLFLOW_IMAGE_PORT,
+            to_port=MLFLOW_IMAGE_PORT,
             description="MLflow API from inference task",
         )
 
@@ -280,8 +282,8 @@ class MLPlatformStatelessStack(Stack):
             group_id=rds_sg.security_group_id,
             source_security_group_id=self.training.task_sg.security_group_id,
             ip_protocol="tcp",
-            from_port=constants.RDS_PORT,
-            to_port=constants.RDS_PORT,
+            from_port=RDS_PORT,
+            to_port=RDS_PORT,
             description="Postgres from training task (v2 preparatory)",
         )
         ec2.CfnSecurityGroupIngress(
@@ -290,8 +292,8 @@ class MLPlatformStatelessStack(Stack):
             group_id=rds_sg.security_group_id,
             source_security_group_id=self.inference.task_sg.security_group_id,
             ip_protocol="tcp",
-            from_port=constants.RDS_PORT,
-            to_port=constants.RDS_PORT,
+            from_port=RDS_PORT,
+            to_port=RDS_PORT,
             description="Postgres from inference task (v2 preparatory)",
         )
 
@@ -302,7 +304,7 @@ class MLPlatformStatelessStack(Stack):
             mlflow_service=stateful.experiment_tracking.mlflow_service,
             rds_instance=stateful.experiment_tracking.rds_instance,
             online_table=online_table,
-            alarm_email=constants.ALARM_EMAIL,
+            alarm_email=ALARM_EMAIL,
         )
 
         # ── CfnOutputs ────────────────────────────────────────────────────
