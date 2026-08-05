@@ -51,7 +51,7 @@ N_CUSTOMERS = 200
 FEATURES_PREFIX = "offline/customer_features"
 LABELS_PREFIX = "offline/labels"
 TRAIN_ENTITIES_KEY = "offline/entities/train_entities.parquet"
-SCORE_ENTITIES_KEY = "offline/entities/score_entities.parquet"
+SCORE_ENTITIES_KEY = "offline/entities/churn_model_score_entities.parquet"
 
 
 def _now_utc() -> datetime:

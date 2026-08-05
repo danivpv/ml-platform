@@ -13,22 +13,26 @@ We partition the codebase into three primary operational domains:
 
 ```text
 src/ml_platform/
-├── common/                     ➔ [inference-training] (Shared Pydantic schemas & ML training loop)
+├── api/                        
+│   └── runtime/                ➔ [api] (FastAPI routing & DB commands)
+├── common/                     ➔ [inference-training] (Shared Pydantic schemas)
 ├── component.py                ➔ [infra] (Core AWS CDK platform constructs)
 ├── experiment_tracking/        
-│   ├── infrastructure.py       ➔ [infra] (RDS Postgres, ECS Fargate cluster, Secrets Manager)
+│   ├── infrastructure.py       ➔ [infra] (RDS Postgres, ECS, Secrets Manager)
 │   └── runtime/                ➔ [mlflow] (MLflow tracking server Dockerfile)
 ├── feature_store/              
 │   ├── infrastructure.py       ➔ [infra] (S3 offline store, DynamoDB online store)
-│   └── runtime/feature_repo/   ➔ [inference-training] (Feast entities, feature views, yaml config)
+│   └── runtime/feature_repo/   ➔ [inference-training] (Feast entities, configs)
 ├── inference/                  
-│   ├── infrastructure.py       ➔ [infra] (Batch inference ECS task definitions & schedule)
-│   └── runtime/                ➔ [inference-training] (predict.py batch inference runtime & Dockerfile)
+│   ├── batch/
+│   │   ├── infrastructure.py   ➔ [infra] (Batch inference ECS task & schedule)
+│   │   └── runtime/            ➔ [inference-training] (predict.py batch runtime)
+│   └── online/                 ➔ (Stubbed, waiting for implementation)
 ├── monitoring/                 
-│   └── infrastructure.py       ➔ [infra] (CloudWatch dashboards, alarms, EventBridge rules)
+│   └── infrastructure.py       ➔ [infra] (CloudWatch dashboards, alarms)
 └── training/                   
-    ├── infrastructure.py       ➔ [infra] (Training pipeline ECS task definitions)
-    └── runtime/                ➔ [inference-training] (train.py model training job & Dockerfile)
+    ├── infrastructure.py       ➔ [infra] (Training pipeline ECS task)
+    └── runtime/                ➔ [inference-training] (train.py model training)
 ```
 
 ### Why `conflicts` is Defined in `pyproject.toml`
@@ -50,38 +54,7 @@ By setting `default-groups` to **`["dev"]`** (and removing `infra` from default)
 * **Why?** The `dev` group contains universal developer tooling (`pytest`, `ruff`, `ty`) that is completely compatible with **all** domains (`infra`, `inference-training`, and `mlflow`).
 * When you run `uv run --group infra <cmd>` or `uv run --group inference-training <cmd>`, `uv` automatically layers that specific domain group on top of `dev` without needing verbose `--no-default-groups` override flags.
 
-### Tip 2: Simplified Group-Isolated Execution
-When running test suites, linting, or CDK operations, simply specify the target domain group:
 
-```bash
-# Run unit tests for ML training, feature store, and schemas
-uv run --group inference-training pytest tests/unit/test_schemas.py
-
-# Run unit tests for AWS infrastructure constructs (using bash brace expansion)
-uv run --group infra pytest --ignore=cdk.out tests/unit/{test_experiment_tracking,test_feature_store,test_inference,test_monitoring,test_training}.py
-
-# Execute CDK synthesis or deployment
-uv run --group infra cdk deploy --all --require-approval never
-```
-
-### Tip 3: Type Checking (`ty`) & Global Fallbacks
-If type checking fails with errors like `Cannot resolve imported module`, it is because the type checker was executed without the required dependency group active in the virtual environment.
-
-**Beware of Global Fallbacks:** If `ty` is installed globally on your machine (e.g., in `~/.local/bin/ty` or via `pipx`), running bare `ty check` in bash will fall back to that global binary if `dev` is not installed in your active virtualenv. A global binary lacks visibility into `uv`'s group-isolated site-packages and will fail to resolve imports.
-* **Fix:** If you have an unwanted global installation, remove it (`rm ~/.local/bin/ty*` or `pipx uninstall ty`).
-* **Best Practice:** Always invoke `ty` via `uv run` with the explicit group required for that module:
-
-```bash
-# Check infrastructure modules
-uv run --group infra ty check src/ml_platform/*/infrastructure.py src/ml_platform/component.py app.py constants.py --verbose
-
-# Check runtime ML modules (training, inference, feature store, common)
-uv run --group inference-training ty check src/ml_platform/{inference,training,feature_store}/runtime src/ml_platform/common --verbose
-
-# Check MLflow server runtime
-uv run --group mlflow ty check src/ml_platform/experiment_tracking/runtime --verbose
-```
-*(Note: All of these commands are pre-configured in the `make type-check` and `make test` targets in the project `Makefile`).*
 
 ---
 
