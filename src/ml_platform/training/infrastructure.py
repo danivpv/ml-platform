@@ -33,13 +33,16 @@ Env var contract (available inside the running container):
 from typing import Any
 
 from aws_cdk import (
+    RemovalPolicy,
     aws_ec2 as ec2,
     aws_ecs as ecs,
+    aws_logs,
     aws_ssm as ssm,
 )
 from aws_cdk.aws_ecr_assets import DockerImageAsset
 from constructs import Construct
 
+from ml_platform.config import settings
 from ml_platform.constants import ROOT_DIR
 from ml_platform.training.constants import TASK_CPU, TASK_MEMORY_MB
 
@@ -106,6 +109,14 @@ class TrainingConstruct(Construct):
         # Grant SSM read so the task can resolve the MLflow URI parameter.
         mlflow_uri_param.grant_read(self.task_definition.task_role)
 
+        log_group = aws_logs.LogGroup(
+            self,
+            "TrainingLogGroup",
+            log_group_name=f"/ml-platform/{settings.stage}/training",
+            removal_policy=RemovalPolicy.DESTROY,
+            retention=aws_logs.RetentionDays.ONE_MONTH,
+        )
+
         self.task_definition.add_container(
             "TrainingContainer",
             image=ecs.ContainerImage.from_docker_image_asset(training_image),
@@ -120,7 +131,10 @@ class TrainingConstruct(Construct):
                 # Update the SSM param post-deploy; no redeploy required.
                 "MLFLOW_TRACKING_URI": ecs.Secret.from_ssm_parameter(mlflow_uri_param),
             },
-            logging=ecs.LogDrivers.aws_logs(stream_prefix="training"),
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix="training",
+                log_group=log_group,
+            ),
         )
 
         # Store cluster reference for use in component.py run-task examples

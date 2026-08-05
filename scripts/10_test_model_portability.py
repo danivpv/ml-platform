@@ -6,6 +6,7 @@ outside the ECS container environment.
 """
 
 import os
+
 import mlflow.pyfunc
 import pandas as pd
 

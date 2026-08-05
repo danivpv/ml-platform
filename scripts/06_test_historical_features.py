@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 from feast import FeatureStore
+
 import ml_platform.feature_store.runtime.feature_repo as repo_pkg
 
 

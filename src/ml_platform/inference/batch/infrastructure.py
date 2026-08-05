@@ -38,15 +38,18 @@ import json
 from typing import Any
 
 from aws_cdk import (
+    RemovalPolicy,
     aws_ec2 as ec2,
     aws_ecs as ecs,
     aws_iam as iam,
+    aws_logs,
     aws_scheduler as scheduler,
     aws_ssm as ssm,
 )
 from aws_cdk.aws_ecr_assets import DockerImageAsset
 from constructs import Construct
 
+from ml_platform.config import settings
 from ml_platform.constants import ROOT_DIR
 from ml_platform.inference.constants import (
     INFERENCE_SCHEDULE_EXPR,
@@ -121,6 +124,14 @@ class InferenceConstruct(Construct):
         # Grant SSM read so the task can resolve the MLflow URI parameter.
         mlflow_uri_param.grant_read(self.task_definition.task_role)
 
+        log_group = aws_logs.LogGroup(
+            self,
+            "InferenceLogGroup",
+            log_group_name=f"/ml-platform/{settings.stage}/inference",
+            removal_policy=RemovalPolicy.DESTROY,
+            retention=aws_logs.RetentionDays.ONE_MONTH,
+        )
+
         self.task_definition.add_container(
             "InferenceContainer",
             image=ecs.ContainerImage.from_docker_image_asset(inference_image),
@@ -134,7 +145,10 @@ class InferenceConstruct(Construct):
             secrets={
                 "MLFLOW_TRACKING_URI": ecs.Secret.from_ssm_parameter(mlflow_uri_param),
             },
-            logging=ecs.LogDrivers.aws_logs(stream_prefix="inference"),
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix="inference",
+                log_group=log_group,
+            ),
         )
 
         # ── EventBridge Scheduler ──────────────────────────────────────────
@@ -175,9 +189,10 @@ class InferenceConstruct(Construct):
             )
         )
 
-        # Resolve public subnet IDs at synth time for the network config.
-        # CDK context caches AZ lookups in cdk.context.json (committed).
-        public_subnets = vpc.select_subnets(subnet_type=ec2.SubnetType.PUBLIC)
+        # Resolve private subnet IDs at synth time for the network config.
+        private_subnets = vpc.select_subnets(
+            subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
+        )
 
         self.schedule = scheduler.CfnSchedule(
             self,
@@ -200,11 +215,10 @@ class InferenceConstruct(Construct):
                     launch_type="FARGATE",
                     network_configuration=scheduler.CfnSchedule.NetworkConfigurationProperty(
                         awsvpc_configuration=scheduler.CfnSchedule.AwsVpcConfigurationProperty(
-                            subnets=public_subnets.subnet_ids,
+                            subnets=private_subnets.subnet_ids,
                             security_groups=[self.task_sg.security_group_id],
-                            # Public IP required in default VPC without VPC endpoints
-                            # (ECR image pull goes over the internet). See PRD §6.6.
-                            assign_public_ip="ENABLED",
+                            # Private subnet + NAT gateway. No public IP.
+                            assign_public_ip="DISABLED",
                         ),
                     ),
                 ),

@@ -31,18 +31,21 @@ from aws_cdk import (
     RemovalPolicy,
     aws_ec2 as ec2,
     aws_ecs as ecs,
+    aws_elasticloadbalancingv2 as elbv2,
+    aws_logs,
     aws_rds as rds,
     aws_s3 as s3,
     aws_ssm as ssm,
 )
-from ml_platform.config import settings
-from ml_platform.constants import ROOT_DIR
 from aws_cdk.aws_ecr_assets import DockerImageAsset
 from constructs import Construct
+
+from ml_platform.config import settings
+from ml_platform.constants import ROOT_DIR
 from ml_platform.experiment_tracking.constants import (
-    MLFLOW_IMAGE_PORT,
     MLFLOW_FARGATE_CPU,
     MLFLOW_FARGATE_MEMORY_MB,
+    MLFLOW_IMAGE_PORT,
     RDS_DB_NAME,
     RDS_PORT,
 )
@@ -74,6 +77,8 @@ class ExperimentTrackingConstruct(Construct):
         *,
         vpc: ec2.IVpc,
         developer_cidr: str,
+        alb_listener: elbv2.ApplicationListener,
+        alb_sg: ec2.SecurityGroup,
         **kwargs: Any,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -110,19 +115,19 @@ class ExperimentTrackingConstruct(Construct):
             allow_all_outbound=False,
         )
 
-        # MLflow SG — inbound 5000 from developer CIDR; outbound unrestricted
-        # (needs to reach RDS on 5432 and S3 on 443).
+        # MLflow SG — inbound traffic from ALB (configured in ApiConstruct)
+        # outbound unrestricted (needs to reach RDS on 5432 and S3 on 443).
         self.mlflow_sg = ec2.SecurityGroup(
             self,
             "MlflowSg",
             vpc=vpc,
-            description="Allow MLflow UI (5000) from developer CIDR",
+            description="Allow MLflow UI from ALB",
             allow_all_outbound=True,
         )
         self.mlflow_sg.add_ingress_rule(
-            peer=ec2.Peer.ipv4(developer_cidr),
-            connection=ec2.Port.tcp(MLFLOW_IMAGE_PORT),
-            description="MLflow UI from developer IP",
+            peer=alb_sg,
+            connection=ec2.Port.tcp(5000),
+            description="Allow MLflow access from ALB",
         )
 
         # Wire: RDS allows 5432 from the MLflow SG
@@ -153,7 +158,9 @@ class ExperimentTrackingConstruct(Construct):
             ),
             database_name=RDS_DB_NAME,
             vpc=vpc,
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
+            vpc_subnets=ec2.SubnetSelection(
+                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
+            ),
             publicly_accessible=False,
             security_groups=[self.rds_sg],
             multi_az=False,
@@ -227,6 +234,14 @@ class ExperimentTrackingConstruct(Construct):
             "Ensure credentials=Credentials.from_generated_secret() was used."
         )
 
+        log_group = aws_logs.LogGroup(
+            self,
+            "MlflowLogGroup",
+            log_group_name=f"/ml-platform/{settings.stage}/mlflow",
+            removal_policy=RemovalPolicy.DESTROY,
+            retention=aws_logs.RetentionDays.ONE_MONTH,
+        )
+
         task_def.add_container(
             "MlflowContainer",
             image=ecs.ContainerImage.from_docker_image_asset(mlflow_image),
@@ -248,7 +263,10 @@ class ExperimentTrackingConstruct(Construct):
                 "DB_PORT": ecs.Secret.from_secrets_manager(rds_secret, "port"),
                 "DB_NAME": ecs.Secret.from_secrets_manager(rds_secret, "dbname"),
             },
-            logging=ecs.LogDrivers.aws_logs(stream_prefix="mlflow"),
+            logging=ecs.LogDrivers.aws_logs(
+                stream_prefix="mlflow",
+                log_group=log_group,
+            ),
         )
 
         # ECS agent needs the execution role to resolve ecs.Secret references
@@ -268,9 +286,27 @@ class ExperimentTrackingConstruct(Construct):
             circuit_breaker=ecs.DeploymentCircuitBreaker(enable=True, rollback=True),
             min_healthy_percent=100,
             max_healthy_percent=200,
-            # Public subnet + public IP: required in default VPC without a NAT
-            # gateway. The SG restricts inbound to developer CIDR on port 5000.
-            assign_public_ip=True,
+            # Private subnet + NAT Gateway. No public IP.
+            assign_public_ip=False,
             security_groups=[self.mlflow_sg],
-            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
+            vpc_subnets=ec2.SubnetSelection(
+                subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS
+            ),
+        )
+
+        # ── ALB Integration ────────────────────────────────────────────────
+        # Default action: route to MLflow UI
+        alb_listener.add_targets(
+            "MlflowTarget",
+            port=5000,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            targets=[
+                self.mlflow_service.load_balancer_target(
+                    container_name="MlflowContainer", container_port=5000
+                )
+            ],
+            health_check=elbv2.HealthCheck(
+                path="/",
+                healthy_http_codes="200-399",
+            ),
         )

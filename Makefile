@@ -5,7 +5,8 @@ AWS_PROFILE ?= default
 # Export so all child processes (cdk, aws cli) inherit the profile
 export AWS_PROFILE
 
-.PHONY: lint type-check test docker-build deploy deploy-stateful deploy-stateless clean
+.PHONY: lint type-check test docker-build docker-test docker-compose-up \
+		docker-compose-down deploy deploy-stateful deploy-stateless clean
 
 # ── Quality ───────────────────────────────────────────────────────────────────
 
@@ -28,7 +29,17 @@ test:
 docker-build:
 	docker build -f src/ml_platform/experiment_tracking/runtime/Dockerfile -t ml-platform/mlflow:latest .
 	docker build -f src/ml_platform/training/runtime/Dockerfile -t ml-platform/training:latest .
-	docker build -f src/ml_platform/inference/runtime/Dockerfile -t ml-platform/inference:latest .
+	docker build -f src/ml_platform/inference/batch/runtime/Dockerfile -t ml-platform/inference:latest .
+	docker build -f src/ml_platform/api/runtime/Dockerfile -t ml-platform/api:latest .
+
+docker-test:
+	docker build -t api-test -f src/ml_platform/api/runtime/Dockerfile .
+
+docker-compose-up:
+	docker-compose up -d
+
+docker-compose-down:
+	docker-compose down -v
 
 # ── CDK ───────────────────────────────────────────────────────────────────────
 
@@ -44,7 +55,7 @@ deploy-stateless:
 deploy:
 	uv run --group infra cdk deploy --all --require-approval never --profile $(AWS_PROFILE)
 
-teardown:
+destroy:
 	uv run --group infra cdk destroy --all --profile $(AWS_PROFILE)
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────

@@ -25,12 +25,11 @@ from datetime import datetime, timezone
 import pandas as pd
 import pytest
 
-from ml_platform.training.runtime.models import EntityRow
-from ml_platform.inference.batch.runtime.models import PredictionRecord
 from ml_platform.feature_store.runtime.config import FeastRepoConfig
 from ml_platform.inference.batch.runtime.config import InferenceConfig
+from ml_platform.inference.batch.runtime.models import PredictionRecord
 from ml_platform.training.runtime.config import TrainingConfig
-
+from ml_platform.training.runtime.models import EntityRow
 
 # ── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -193,6 +192,7 @@ class TestInferenceConfig:
         monkeypatch.setenv("ARTIFACTS_BUCKET", "test-artifacts-bucket")
         monkeypatch.setenv("MLFLOW_TRACKING_URI", "file:///tmp/mlruns")
         monkeypatch.setenv("PREDICTIONS_PREFIX", "s3://test-bucket/predictions/")
+        monkeypatch.setenv("DATABASE_URL", "sqlite:///test.db")
 
         config = InferenceConfig()  # type: ignore  # pydantic-settings reads from env
         assert config.feature_bucket == "test-feature-bucket"

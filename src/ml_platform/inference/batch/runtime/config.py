@@ -15,4 +15,4 @@ class InferenceConfig(TrainingConfig):
     """
 
     predictions_prefix: str
-    database_url: str
+    feature_refs: str

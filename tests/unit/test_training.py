@@ -41,7 +41,19 @@ _MOCK_VPC_CONTEXT = {
                     "routeTableId": "rtb-1",
                 }
             ],
-        }
+        },
+        {
+            "name": "Private",
+            "type": "Private",
+            "subnets": [
+                {
+                    "subnetId": "subnet-priv1",
+                    "cidr": "10.0.1.0/24",
+                    "availabilityZone": "us-east-1a",
+                    "routeTableId": "rtb-2",
+                }
+            ],
+        },
     ],
 }
 

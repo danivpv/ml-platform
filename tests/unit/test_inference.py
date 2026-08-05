@@ -17,12 +17,12 @@ from aws_cdk import (
     aws_ssm as ssm,
 )
 
+from ml_platform.inference.batch.infrastructure import InferenceConstruct
 from ml_platform.inference.constants import (
     INFERENCE_SCHEDULE_EXPR,
     TASK_CPU,
     TASK_MEMORY_MB,
 )
-from ml_platform.inference.batch.infrastructure import InferenceConstruct
 
 _VPC_CONTEXT_KEY = (
     "vpc-provider:account=123456789012:filter.isDefault=true"
@@ -45,7 +45,19 @@ _MOCK_VPC_CONTEXT = {
                     "routeTableId": "rtb-1",
                 }
             ],
-        }
+        },
+        {
+            "name": "Private",
+            "type": "Private",
+            "subnets": [
+                {
+                    "subnetId": "subnet-priv1",
+                    "cidr": "10.0.1.0/24",
+                    "availabilityZone": "us-east-1a",
+                    "routeTableId": "rtb-2",
+                }
+            ],
+        },
     ],
 }
 
@@ -161,8 +173,8 @@ class TestEventBridgeScheduler:
             },
         )
 
-    def test_schedule_assigns_public_ip(self, template: assertions.Template) -> None:
-        """Inference task needs a public IP for ECR pull in the default VPC."""
+    def test_schedule_disables_public_ip(self, template: assertions.Template) -> None:
+        """Inference task does not need a public IP because it runs in a private subnet."""
         template.has_resource_properties(
             "AWS::Scheduler::Schedule",
             {
@@ -173,7 +185,7 @@ class TestEventBridgeScheduler:
                                 "NetworkConfiguration": assertions.Match.object_like(
                                     {
                                         "AwsvpcConfiguration": assertions.Match.object_like(
-                                            {"AssignPublicIp": "ENABLED"}
+                                            {"AssignPublicIp": "DISABLED"}
                                         )
                                     }
                                 )

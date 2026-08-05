@@ -8,9 +8,9 @@ Run:  uv run pytest tests/unit/test_experiment_tracking.py -v
 
 import aws_cdk as cdk
 import pytest
-from aws_cdk import assertions, aws_ec2 as ec2
+from aws_cdk import assertions, aws_ec2 as ec2, aws_elasticloadbalancingv2 as elbv2
 
-from ml_platform.constants import SSM_MLFLOW_TRACKING_URI
+from ml_platform.config import settings
 from ml_platform.experiment_tracking.constants import (
     MLFLOW_FARGATE_CPU,
     MLFLOW_FARGATE_MEMORY_MB,
@@ -43,7 +43,19 @@ def template() -> assertions.Template:
                                 "routeTableId": "rtb-1",
                             }
                         ],
-                    }
+                    },
+                    {
+                        "name": "Private",
+                        "type": "Private",
+                        "subnets": [
+                            {
+                                "subnetId": "subnet-priv1",
+                                "cidr": "10.0.1.0/24",
+                                "availabilityZone": "us-east-1a",
+                                "routeTableId": "rtb-2",
+                            }
+                        ],
+                    },
                 ],
             }
         }
@@ -54,11 +66,19 @@ def template() -> assertions.Template:
         env=cdk.Environment(account="123456789012", region="us-east-1"),
     )
     vpc = ec2.Vpc.from_lookup(stack, "Vpc", is_default=True)
+    alb_sg = ec2.SecurityGroup(stack, "AlbSg", vpc=vpc)
+    alb = elbv2.ApplicationLoadBalancer(
+        stack, "Alb", vpc=vpc, internet_facing=True, security_group=alb_sg
+    )
+    listener = alb.add_listener("Listener", port=80, open=True)
+
     ExperimentTrackingConstruct(
         stack,
         "ExperimentTracking",
         vpc=vpc,
         developer_cidr="192.0.2.1/32",  # TEST-NET — safe for unit tests
+        alb_listener=listener,
+        alb_sg=alb_sg,
     )
     return assertions.Template.from_stack(stack)
 
@@ -171,5 +191,5 @@ class TestSsmParameter:
     def test_ssm_parameter_name(self, template: assertions.Template) -> None:
         template.has_resource_properties(
             "AWS::SSM::Parameter",
-            {"Name": SSM_MLFLOW_TRACKING_URI},
+            {"Name": settings.ssm_mlflow_tracking_uri},
         )

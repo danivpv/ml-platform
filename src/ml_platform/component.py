@@ -55,23 +55,23 @@ from aws_cdk import (
     CfnOutput,
     Stack,
     aws_ec2 as ec2,
+    aws_elasticloadbalancingv2 as elbv2,
     aws_iam as iam,
 )
 from constructs import Construct
 
+from ml_platform.api.infrastructure import ApiConstruct
 from ml_platform.config import settings
 from ml_platform.constants import DEVELOPER_CIDR
 from ml_platform.experiment_tracking.constants import MLFLOW_IMAGE_PORT, RDS_PORT
-from ml_platform.monitoring.constants import ALARM_EMAIL
-from ml_platform.api.infrastructure import ApiConstruct
 from ml_platform.experiment_tracking.infrastructure import (
     ExperimentTrackingConstruct,
 )
 from ml_platform.feature_store.infrastructure import FeatureStoreConstruct
 from ml_platform.inference.batch.infrastructure import InferenceConstruct
+from ml_platform.monitoring.constants import ALARM_EMAIL
 from ml_platform.monitoring.infrastructure import MonitoringConstruct
 from ml_platform.training.infrastructure import TrainingConstruct
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stack 1 — Stateful (data plane)
@@ -90,16 +90,57 @@ class MLPlatformStatefulStack(Stack):
         super().__init__(scope, construct_id, **kwargs)
 
         # ── Networking ─────────────────────────────────────────────────────
-        # Use the account's default VPC — no custom VPC/NAT in v1 (PRD §2.10).
-        # CDK looks up the default VPC via a context provider call; the result
-        # is cached in cdk.context.json and committed to version control.
-        vpc = ec2.Vpc.from_lookup(self, "DefaultVpc", is_default=True)
+        # Provision a custom VPC with 1 NAT Gateway for private subnets.
+        # This hardens the network by moving Fargate tasks off public IPs.
+        self.vpc = ec2.Vpc(
+            self,
+            "PlatformVpc",
+            max_azs=2,
+            nat_gateways=1,
+            subnet_configuration=[
+                ec2.SubnetConfiguration(
+                    name="Public",
+                    subnet_type=ec2.SubnetType.PUBLIC,
+                    cidr_mask=24,
+                ),
+                ec2.SubnetConfiguration(
+                    name="Private",
+                    subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS,
+                    cidr_mask=24,
+                ),
+            ],
+        )
+        # ── Application Load Balancer (Ingress Gateway) ────────────────────
+        self.alb_sg = ec2.SecurityGroup(
+            self,
+            "AlbSg",
+            vpc=self.vpc,
+            description="ALB security group",
+            allow_all_outbound=True,
+        )
+        self.alb_sg.add_ingress_rule(
+            peer=ec2.Peer.ipv4(DEVELOPER_CIDR),
+            connection=ec2.Port.tcp(80),
+            description="Allow HTTP access from developer CIDR",
+        )
+
+        self.alb = elbv2.ApplicationLoadBalancer(
+            self,
+            "ApiAlb",
+            vpc=self.vpc,
+            internet_facing=True,
+            security_group=self.alb_sg,
+        )
+        self.listener = self.alb.add_listener("ApiListener", port=80)
+
         self.feature_store = FeatureStoreConstruct(self, "FeatureStore")
         self.experiment_tracking = ExperimentTrackingConstruct(
             self,
             "ExperimentTracking",
-            vpc=vpc,
+            vpc=self.vpc,
             developer_cidr=DEVELOPER_CIDR,
+            alb_listener=self.listener,
+            alb_sg=self.alb_sg,
         )
         # rds_instance.secret is always populated by CDK when
         # generate_secret_rotation=True (default for DatabaseInstance).
@@ -120,6 +161,13 @@ class MLPlatformStatefulStack(Stack):
             value=self.feature_store.online_table.table_name,
             description="DynamoDB table for Feast online store",
             export_name=f"{settings.app_name}-{settings.stage}-online-table",
+        )
+        CfnOutput(
+            self,
+            "ApiEndpointUrl",
+            value=f"http://{self.alb.load_balancer_dns_name}",
+            description="API Endpoint URL (Application Load Balancer)",
+            export_name=f"{settings.app_name}-{settings.stage}-api-url",
         )
         CfnOutput(
             self,
@@ -180,9 +228,8 @@ class MLPlatformStatelessStack(Stack):
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        # Resolve VPC — same lookup as in the stateful stack; CDK context
-        # ensures a single DescribeVpcs call cached in cdk.context.json.
-        vpc = ec2.Vpc.from_lookup(self, "DefaultVpc", is_default=True)
+        # Retrieve the custom VPC from the stateful stack.
+        vpc = stateful.vpc
 
         feature_bucket = stateful.feature_store.bucket
         online_table = stateful.feature_store.online_table
@@ -216,6 +263,31 @@ class MLPlatformStatelessStack(Stack):
             online_table_name=online_table.table_name,
             artifacts_bucket_name=artifacts_bucket.bucket_name,
             mlflow_uri_param=mlflow_uri_param,
+        )
+
+        # ── API (Catalog) ─────────────────────────────────────────────────
+        self.api = ApiConstruct(
+            self,
+            "Api",
+            cluster=cluster,
+            vpc=vpc,
+            rds_secret=rds_secret,
+            training_task_arn=self.training.task_definition.task_definition_arn,
+            training_task_role_arn=self.training.task_definition.task_role.role_arn,
+            training_exec_role_arn=cast(
+                iam.Role, self.training.task_definition.execution_role
+            ).role_arn,
+            training_sg_id=self.training.task_sg.security_group_id,
+            inference_task_arn=self.inference.task_definition.task_definition_arn,
+            inference_task_role_arn=self.inference.task_definition.task_role.role_arn,
+            inference_exec_role_arn=cast(
+                iam.Role, self.inference.task_definition.execution_role
+            ).role_arn,
+            inference_sg_id=self.inference.task_sg.security_group_id,
+            inference_scheduler_role_arn=self.inference.scheduler_role.role_arn,
+            mlflow_uri_param=mlflow_uri_param,
+            alb_listener=stateful.listener,
+            alb_sg=stateful.alb_sg,
         )
 
         # ── Cross-construct IAM grants ────────────────────────────────────
@@ -269,6 +341,16 @@ class MLPlatformStatelessStack(Stack):
             to_port=MLFLOW_IMAGE_PORT,
             description="MLflow API from inference task",
         )
+        ec2.CfnSecurityGroupIngress(
+            self,
+            "MlflowIngressFromApi",
+            group_id=mlflow_sg.security_group_id,
+            source_security_group_id=self.api.api_sg.security_group_id,
+            ip_protocol="tcp",
+            from_port=MLFLOW_IMAGE_PORT,
+            to_port=MLFLOW_IMAGE_PORT,
+            description="MLflow API from catalog API task",
+        )
 
         # RDS SG: allow 5432 from training and inference task SGs.
         # These are preparatory rules for v2 direct-DB access; MLflow server
@@ -295,6 +377,16 @@ class MLPlatformStatelessStack(Stack):
             from_port=RDS_PORT,
             to_port=RDS_PORT,
             description="Postgres from inference task (v2 preparatory)",
+        )
+        ec2.CfnSecurityGroupIngress(
+            self,
+            "RdsIngressFromApi",
+            group_id=rds_sg.security_group_id,
+            source_security_group_id=self.api.api_sg.security_group_id,
+            ip_protocol="tcp",
+            from_port=RDS_PORT,
+            to_port=RDS_PORT,
+            description="Postgres from catalog API task",
         )
 
         # ── Monitoring ────────────────────────────────────────────────────
