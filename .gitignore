@@ -226,3 +226,8 @@ __marimo__/
 .cdk.staging
 cdk.out
 
+# Project management
+_*.md
+
+# Local CDK context (account lookups and VPC ids). Do not publish.
+cdk.context.json

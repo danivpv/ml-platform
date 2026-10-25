@@ -1,0 +1,47 @@
+# Set default behavior to normalize line endings to LF on commit
+* text=auto eol=lf
+
+# Python scripts and shell scripts must preserve LF line endings (especially in Linux/Docker/AWS)
+*.py text eol=lf
+*.sh text eol=lf
+Makefile text eol=lf
+Dockerfile text eol=lf
+
+# Treat lock files as binary to suppress line count churn in `git diff --stat`
+uv.lock -diff
+poetry.lock -diff
+Pipfile.lock -diff
+*.lock -diff
+
+# Mark lock files as generated to auto-collapse them in GitHub PR reviews
+uv.lock linguist-generated=true
+poetry.lock linguist-generated=true
+Pipfile.lock linguist-generated=true
+*.lock linguist-generated=true
+
+# Exclude lock files from repository language statistics (GitHub language bar)
+uv.lock linguist-vendored=true
+poetry.lock linguist-vendored=true
+Pipfile.lock linguist-vendored=true
+*.lock linguist-vendored=true
+
+# CDK / CloudFormation synth outputs and snapshots (if checked in for snapshot tests)
+*.template.json linguist-generated=true
+cdk.context.json -diff
+
+# Binary assets and machine learning models
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.pdf binary
+*.parquet binary
+*.pkl binary
+*.joblib binary
+*.onnx binary
+
+# Web & vector assets
+*.svg text
+*.json text
+*.yaml text
+*.yml text
